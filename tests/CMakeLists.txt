@@ -1,0 +1,27 @@
+# add extra tests
+
+add_executable(test-ntt            ${PROJECT_SOURCE_DIR}/tests/test-ntt.cpp)
+add_executable(test-utils          ${PROJECT_SOURCE_DIR}/tests/test-utils.cpp)
+add_executable(test-packing-lwes   ${PROJECT_SOURCE_DIR}/tests/test-packing-lwes.cpp)
+add_executable(test-two-dimensions ${PROJECT_SOURCE_DIR}/tests/test-two-dimensions.cpp)
+add_executable(test-first-construction ${PROJECT_SOURCE_DIR}/tests/test-first-construction.cpp)
+add_executable(test-setup          ${PROJECT_SOURCE_DIR}/tests/test-setup.cpp)
+add_executable(test-expand         ${PROJECT_SOURCE_DIR}/tests/test-expand.cpp)
+
+target_include_directories(test-ntt             PUBLIC ${PROJECT_SOURCE_DIR}/src)
+target_include_directories(test-utils           PUBLIC ${PROJECT_SOURCE_DIR}/src)
+#target_include_directories(test-utils           PUBLIC "/usr/local/include")
+target_include_directories(test-packing-lwes    PUBLIC ${PROJECT_SOURCE_DIR}/src)
+#target_include_directories(test-packing-lwes    PUBLIC "/usr/local/include")
+target_include_directories(test-two-dimensions  PUBLIC ${PROJECT_SOURCE_DIR}/src)
+target_include_directories(test-first-construction PUBLIC ${PROJECT_SOURCE_DIR}/src)
+target_include_directories(test-setup           PUBLIC ${PROJECT_SOURCE_DIR}/src)
+target_include_directories(test-expand          PUBLIC ${PROJECT_SOURCE_DIR}/src)
+
+target_link_libraries(test-ntt                pir)
+target_link_libraries(test-utils              pir HEXL::hexl)
+target_link_libraries(test-packing-lwes       pir HEXL::hexl)
+target_link_libraries(test-two-dimensions     pir HEXL::hexl)
+target_link_libraries(test-first-construction pir HEXL::hexl)
+target_link_libraries(test-setup              pir HEXL::hexl)
+target_link_libraries(test-expand             pir HEXL::hexl)

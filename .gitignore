@@ -1,0 +1,14 @@
+#vscode
+.vscode/*
+
+
+#MacOS
+.DS_Store
+
+
+#build
+build/*
+
+
+#others
+other_tests
