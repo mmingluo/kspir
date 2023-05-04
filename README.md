@@ -10,7 +10,7 @@ The [kspir](https://github.com/parsear/kspir) is the implenment of the paper [].
 ## Requirements
 The runnig of this code requires a basic c++ toolchain, including
 
-* g++ compiler (clang++12 is newer is optimal)
+* g++ compiler (clang++12 or newer is optimal)
 * make
 * cmake
 
