@@ -5,7 +5,7 @@
 
 #define INTEL_HEXL
 
-// #define SECURITY
+#define SECURITY
 
 #define THREADS
 

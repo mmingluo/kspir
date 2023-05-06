@@ -44,27 +44,26 @@ void test_two_dimensions()
 int ntimes = 1;
 
     // answer
+    auto start_ksk = std::chrono::high_resolution_clock::now();
 for (size_t i = 0; i < ntimes; i++)
 {
-    auto start_ksk = std::chrono::high_resolution_clock::now();
     ksKey_hint(kskHint.b, kskHint.a, query1.a, ks);
+}
     // ksKey_hint_variant(kskHint.b, kskHint.a, query1.a, ks);
     auto stop_ksk = std::chrono::high_resolution_clock::now();
     auto glapsed_ksk = std::chrono::duration_cast<std::chrono::microseconds>(stop_ksk - start_ksk);
     std::cout << " ksk hint time costs " << glapsed_ksk.count() << " us" << std::endl;
-}
 
-
-for (size_t i = 0; i < ntimes; i++)
-{
     auto start_ans = std::chrono::high_resolution_clock::now();
     // online answer
+for (size_t i = 0; i < ntimes; i++)
+{
     answer_two_dimensions(result, kskHint.b, kskHint.a, query1.b, data, query2);
-
+}
     auto stop_ans = std::chrono::high_resolution_clock::now();
     auto glapsed_ans = std::chrono::duration_cast<std::chrono::microseconds>(stop_ans - start_ans);
     std::cout << " answer time costs " << glapsed_ans.count() << " us" << std::endl;
-}
+
     // recover
     auto start_rec = std::chrono::high_resolution_clock::now();
     std::vector<uint64_t> decrypted(N);
