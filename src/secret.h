@@ -24,7 +24,7 @@ private:
 
     std::vector<uint64_t> data;
 
-    bool nttform = false;
+    bool nttform = true;
 
 #ifdef INTEL_HEXL
     intel::hexl::NTT ntts;
@@ -32,7 +32,7 @@ private:
 
 public:
 
-    Secret(uint64_t module = bigMod);
+    Secret(uint64_t module = bigMod, bool ntt = true);
 
     Secret(LWE_TYPE type, uint64_t module = mod); // LWE construct
 

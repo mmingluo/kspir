@@ -7,6 +7,8 @@
 #include "utils.h"
 #include "encrypt.h"
 
+#include "crt.h"
+
 #ifdef INTEL_HEXL
     #include <hexl/hexl.hpp>
 #endif
@@ -258,11 +260,39 @@ RGSWCiphertext::RGSWCiphertext(uint64_t len, uint64_t module) : length(len), mod
 
 
 #ifdef INTEL_HEXL
-    intel::hexl::NTT ntts(length, modulus);
-    this->ntts = ntts;
+    if (module == crtMod)
+    {
+        intel::hexl::NTT ntts(N, crtMod, root_of_unity_crt);
+        this->ntts = ntts;
+    } else {
+        intel::hexl::NTT ntts(length, module);
+        this->ntts = ntts;
+    }
 #endif
 }
 
+RGSWCiphertext::RGSWCiphertext(uint64_t len, uint64_t module, uint64_t elln, uint64_t base, uint64_t bg):
+    length(len), modulus(module), ellnum(elln), PP(base), BBg(bg)
+{
+    this->a.resize(2 * ellnum);
+    this->b.resize(2 * ellnum);
+    for (size_t i = 0; i < 2 * ellnum; i++)
+    {
+        this->a[i].resize(len);
+        this->b[i].resize(len);
+    }
+
+#ifdef INTEL_HEXL
+    if (module == crtMod)
+    {
+        intel::hexl::NTT ntts(N, crtMod, root_of_unity_crt);
+        this->ntts = ntts;
+    } else {
+        intel::hexl::NTT ntts(length, module);
+        this->ntts = ntts;
+    }
+#endif
+} 
 
 void RGSWCiphertext::keyGen(Secret& secret, const uint64_t index, bool is_reverse)
 {
@@ -392,14 +422,51 @@ AutoKey::AutoKey(/* args */)
 #endif  
 }
 
-AutoKey::AutoKey(int32_t len, uint64_t module, int32_t elln) :
-         length(len), modulus(module), ellnum(elln)
+AutoKey::AutoKey(int32_t len, uint64_t module, int32_t elln, uint64_t base, uint64_t bg) :
+         length(len), modulus(module), ellnum(elln), PP(base), BBg(bg)
 {
 
 #ifdef INTEL_HEXL
-    intel::hexl::NTT ntts(length, modulus);
-    this->ntts = ntts;
+    if (module == crtMod)
+    {
+        intel::hexl::NTT ntts(N, crtMod, root_of_unity_crt);
+        this->ntts = ntts;
+    } else {
+        intel::hexl::NTT ntts(length, module);
+        this->ntts = ntts;
+    }
 #endif
+}
+
+void AutoKey::generateSingleKey(std::vector<RlweCiphertext>& result, int32_t index,
+                                Secret& secret)
+{
+    // The automorphic transform should be done in coefficient form, instead of ntt form.
+    // Also, adding both forms in Secret class can save some computation.
+    if (secret.isNttForm())
+    {
+        secret.toCoeffForm();
+    }
+
+    // compute automorphic^()(s)
+    std::vector<uint64_t> temp(this->length), autosec(this->length);
+    std::vector<uint64_t> mult_factor = powerOfBg(this->PP, this->BBg, this->ellnum);
+
+    automorphic(autosec, secret.getData(), index, modulus);
+
+    for (size_t i = 0; i < ellnum; i++)
+    {
+#ifdef INTEL_HEXL
+        intel::hexl::EltwiseFMAMod(temp.data(), autosec.data(),
+                mult_factor[i], nullptr, this->length, this->modulus, 1);
+        ntts.ComputeForward(temp.data(), temp.data(), 1, 1);
+#endif
+        // rlwe encryption, these rlwes is in ntt form.
+        encrypt(result[i].b.data(), result[i].a.data(), secret, temp.data());
+        // encrypt_special_rlwe(result[i].b.data(), result[i].a.data(), secret, temp.data(), num);
+        result[i].setIsNtt(true);
+        this->isntt = true;
+    }
 }
 
 void AutoKey::generateSingleKey(std::vector<RlweCiphertext>& result, int32_t index,
@@ -461,6 +528,25 @@ void AutoKey::keyGen(Secret& secret, const int32_t num)
     {
         // encrypt automorphic^()(s)
         this->generateSingleKey(key_for_index, index, num, secret);
+
+        keyMap.insert(std::pair<int32_t, std::vector<RlweCiphertext> >(index, key_for_index));
+    }
+}
+
+/**
+ * @brief genreate automorphic keys
+ * 
+ * @param secret 
+ * @param num packing numbers
+ */
+void AutoKey::keyGen(Secret& secret, const std::vector<int32_t> indexLists)
+{
+    std::vector<RlweCiphertext> key_for_index(this->ellnum);
+
+    for (auto index : indexLists)
+    {
+        // encrypt automorphic^()(s)
+        this->generateSingleKey(key_for_index, index, secret);
 
         keyMap.insert(std::pair<int32_t, std::vector<RlweCiphertext> >(index, key_for_index));
     }
@@ -678,7 +764,7 @@ void externalProduct(RlweCiphertext& result, RlweCiphertext& firstDim, const RGS
     }
 
     // g^-1(a, b) * key
-    decompose_rlwe(decFirstDim, firstDim.a, firstDim.b, ellnum, query.getBase(), query.getBg());
+    decompose_rlwe(decFirstDim, firstDim.a, firstDim.b, ellnum, query.getBase(), query.getBg(), modulus);
     for (size_t i = 0; i <  2 * ellnum; i++)
     {
         ntts.ComputeForward(decFirstDim[i].data(), decFirstDim[i].data(), 1, 1);
@@ -712,3 +798,402 @@ void addRnsCiphertext(RlweCiphertext& result1, RlweCiphertext& result2,
     result2.addAndEqual(input2);
 }
 
+/**
+ * AutoKeyBSGS class
+*/
+
+AutoKeyBSGS::AutoKeyBSGS(/* args */)
+{
+#ifdef INTEL_HEXL
+    intel::hexl::NTT ntts(length, modulus);
+    this->ntts = ntts;
+#endif  
+}
+
+AutoKeyBSGS::AutoKeyBSGS(int32_t len, uint64_t module) : length(len), modulus(module)
+{
+#ifdef INTEL_HEXL
+    if (module == crtMod)
+    {
+        intel::hexl::NTT ntts(N, crtMod, root_of_unity_crt);
+        this->ntts = ntts;
+    } else {
+        intel::hexl::NTT ntts(length, module);
+        this->ntts = ntts;
+    }
+#endif
+}
+
+AutoKeyBSGS::AutoKeyBSGS(int32_t len, uint64_t module, int32_t elln_bs, int32_t elln_gs) :
+         length(len), modulus(module), ellnum_bs(elln_bs), ellnum_gs(elln_gs)
+{
+#ifdef INTEL_HEXL
+    intel::hexl::NTT ntts(length, modulus);
+    this->ntts = ntts;
+#endif
+}
+
+void AutoKeyBSGS::generateSingleKey(std::vector<RlweCiphertext>& result, int32_t index,
+                                Secret& secret, const int32_t ellnum, const uint64_t PP,
+                                const uint64_t BBg)
+{
+    // The automorphic transform should be done in coefficient form, instead of ntt form.
+    // Also, adding both forms in Secret class can save some computation.
+    if (secret.isNttForm())
+    {
+        secret.toCoeffForm();
+    }
+
+    // compute automorphic^()(s)
+    std::vector<uint64_t> temp(this->length), autosec(this->length);
+    std::vector<uint64_t> mult_factor = powerOfBg(PP, BBg, ellnum);
+
+    automorphic(autosec, secret.getData(), index, modulus);
+
+    for (size_t i = 0; i < ellnum; i++)
+    {
+#ifdef INTEL_HEXL
+        intel::hexl::EltwiseFMAMod(temp.data(), autosec.data(),
+                mult_factor[i], nullptr, this->length, this->modulus, 1);
+        ntts.ComputeForward(temp.data(), temp.data(), 1, 1);
+#endif
+        // rlwe encryption, these rlwes is in ntt form.
+        encrypt(result[i].b.data(), result[i].a.data(), secret, temp.data());
+        result[i].setIsNtt(true);
+    }
+    this->isntt = true;
+}
+
+/**
+ * @brief genreate automorphic keys
+ * 
+ * @param secret 
+ * @param num packing numbers
+ */
+void AutoKeyBSGS::keyGen(Secret& secret, const std::vector<int32_t> indexLists, StepName stepname)
+{
+    int32_t ellnum = this->ellnum_bs;
+    uint64_t PP = this->PP_bs;
+    uint64_t BBg = this->BBg_bs;
+
+    // if the input index lists are for gaint step, use the second parameters
+    if (stepname == GaintStep)
+    {
+        ellnum = this->ellnum_gs;
+        PP = this->PP_gs;
+        BBg = this->BBg_gs;
+    }
+    
+    std::vector<RlweCiphertext> key_for_index(ellnum, RlweCiphertext(N, modulus));
+
+    for (auto index : indexLists)
+    {
+        // encrypt automorphic^()(s)
+        this->generateSingleKey(key_for_index, index, secret, ellnum, PP, BBg);
+
+        keyMap.insert(std::pair<int32_t, std::vector<RlweCiphertext> >(index, key_for_index));
+    }
+}
+
+uint64_t AutoKeyBSGS::getModulus() const
+{
+    return this->modulus;
+}
+
+uint64_t AutoKeyBSGS::getLength() const
+{
+    return this->length;
+}
+
+uint64_t AutoKeyBSGS::getEllnumBS() const
+{
+    return this->ellnum_bs;
+}
+
+uint64_t AutoKeyBSGS::getBgBS() const
+{
+    return this->BBg_bs;
+}
+
+uint64_t AutoKeyBSGS::getBaseBS() const
+{
+    return this->PP_bs;
+}
+
+uint64_t AutoKeyBSGS::getEllnumGS() const
+{
+    return this->ellnum_gs;
+}
+
+uint64_t AutoKeyBSGS::getBgGS() const
+{
+    return this->BBg_gs;
+}
+
+uint64_t AutoKeyBSGS::getBaseGS() const
+{
+    return this->PP_gs;
+}
+
+bool AutoKeyBSGS::getIsNtt() const
+{
+    return this->isntt;
+}
+
+#ifdef INTEL_HEXL
+intel::hexl::NTT AutoKeyBSGS::getNTT() const
+{
+    return ntts;
+}
+#endif
+
+/**
+ * AutoKeyBSGSRNS class
+*/
+
+AutoKeyBSGSRNS::AutoKeyBSGSRNS(/* args */)
+{
+#ifdef INTEL_HEXL
+    intel::hexl::NTT ntts(length, modulus);
+    this->ntts = ntts;
+
+    intel::hexl::NTT bsNtts(length, bsModulus);
+    this->bsNtts = bsNtts;
+#endif  
+}
+
+AutoKeyBSGSRNS::AutoKeyBSGSRNS(int32_t len, uint64_t module, uint64_t bsModulue) : length(len),
+                                modulus(module), bsModulus(bsModulue)
+{
+#ifdef INTEL_HEXL
+    if (module == crtMod)
+    {
+        intel::hexl::NTT ntts(N, crtMod, root_of_unity_crt);
+        this->ntts = ntts;
+    } else {
+        intel::hexl::NTT ntts(length, module);
+        this->ntts = ntts;
+    }
+
+    intel::hexl::NTT bsNtts(length, bsModulus);
+    this->bsNtts = bsNtts;    
+#endif
+}
+
+AutoKeyBSGSRNS::AutoKeyBSGSRNS(int32_t len, uint64_t module, uint64_t bsModule,
+         int32_t elln_bs, uint64_t pp_bs, uint64_t bbg_bs) :
+         length(len), modulus(module), bsModulus(bsModule),
+         ellnum_bs(elln_bs), PP_bs(pp_bs), BBg_bs(bbg_bs)
+{
+#ifdef INTEL_HEXL
+    if (module == crtMod)
+    {
+        intel::hexl::NTT ntts(N, crtMod, root_of_unity_crt);
+        this->ntts = ntts;
+    } else {
+        intel::hexl::NTT ntts(length, module);
+        this->ntts = ntts;
+    }
+
+    if (bsModule == crtBaMod)
+    {
+        intel::hexl::NTT bsNtts(N, crtBaMod, root_of_unity_crt_bamod);
+        this->bsNtts = bsNtts;
+    } else {
+        intel::hexl::NTT bsNtts(length, bsModulus);
+        this->bsNtts = bsNtts;
+    }
+#endif
+}
+
+void AutoKeyBSGSRNS::generateSingleKeyBS(std::vector<RlweCiphertext>& result, int32_t index,
+                                Secret& secret, const int32_t ellnum, const uint64_t PP,
+                                const uint64_t BBg)
+{
+    // The automorphic transform should be done in coefficient form, instead of ntt form.
+    // Also, adding both forms in Secret class can save some computation.
+    if (secret.isNttForm())
+    {
+        secret.toCoeffForm();
+    }
+
+    // compute automorphic^()(s)
+    std::vector<uint64_t> temp1(this->length), temp2(this->length);
+    std::vector<uint64_t> autosec(this->length), autosec2(this->length);
+
+    // note the powerofBg for 128 bits
+    std::vector<uint128_t> mult_factor = powerOfBg128(PP, BBg, ellnum);
+
+    automorphic(autosec, secret.getData(), index, modulus);
+
+    // store in another modulus
+    copy(autosec.begin(), autosec.end(), autosec2.begin());
+    guass_to_modulus(autosec2.data(), modulus, bsModulus);
+
+    for (size_t i = 0; i < ellnum; i++)
+    {
+#ifdef INTEL_HEXL
+        uint64_t temp = mult_factor[i] % this->modulus;
+        intel::hexl::EltwiseFMAMod(temp1.data(), autosec.data(),
+                temp, nullptr, this->length, this->modulus, 1);
+
+        temp = mult_factor[i] % this->bsModulus;
+        intel::hexl::EltwiseFMAMod(temp2.data(), autosec2.data(),
+                temp, nullptr, this->length, this->bsModulus, 1);
+
+        // rns encryption, these rlwes is in ntt form.
+        encrypt_rns_bsgs_autokey(result[i].b, result[i].a, result[i + ellnum].b, result[i + ellnum].a,
+                    secret, temp1, temp2, bsModulus);
+        
+        result[i].setIsNtt(true);
+        result[i + ellnum].setIsNtt(true);
+        // result[i + ellnum].setModulus(bsModulus);
+#endif
+    }
+    this->isntt = true;
+}
+
+void AutoKeyBSGSRNS::generateSingleKeyGS(std::vector<RlweCiphertext>& result, int32_t index,
+                                Secret& secret, const int32_t ellnum, const uint64_t PP,
+                                const uint64_t BBg)
+{
+    // The automorphic transform should be done in coefficient form, instead of ntt form.
+    // Also, adding both forms in Secret class can save some computation.
+    if (secret.isNttForm())
+    {
+        secret.toCoeffForm();
+    }
+
+    // compute automorphic^()(s)
+    std::vector<uint64_t> temp(this->length), autosec(this->length);
+    std::vector<uint64_t> mult_factor = powerOfBg(PP, BBg, ellnum);
+
+    automorphic(autosec, secret.getData(), index, modulus);
+
+    for (size_t i = 0; i < ellnum; i++)
+    {
+#ifdef INTEL_HEXL
+        intel::hexl::EltwiseFMAMod(temp.data(), autosec.data(),
+                mult_factor[i], nullptr, this->length, this->modulus, 1);
+        ntts.ComputeForward(temp.data(), temp.data(), 1, 1);
+#endif
+        // rlwe encryption, these rlwes is in ntt form.
+        encrypt(result[i].b.data(), result[i].a.data(), secret, temp.data());
+        result[i].setIsNtt(true);
+    }
+    this->isntt = true;
+}
+
+/**
+ * @brief genreate automorphic keys
+ * 
+ * @param secret 
+ * @param num packing numbers
+ */
+void AutoKeyBSGSRNS::keyGen(Secret& secret, const std::vector<int32_t> indexLists, StepName stepname)
+{
+    // if the input index lists are for gaint step, use the second parameters
+    if (stepname == GaintStep)
+    {
+        std::vector<RlweCiphertext> key_for_index(this->ellnum_gs, RlweCiphertext(N, modulus));
+
+        for (auto index : indexLists)
+        {
+            // encrypt automorphic^()(s)
+            this->generateSingleKeyGS(key_for_index, index, secret, this->ellnum_gs, this->PP_gs, this->BBg_gs);
+
+            keyMap.insert(std::pair<int32_t, std::vector<RlweCiphertext> >(index, key_for_index));
+        }
+
+        return;
+    }
+
+    // there are rns rlwe ciphertexts in baby step
+    std::vector<RlweCiphertext> key_for_index(this->ellnum_bs, RlweCiphertext(N, modulus));
+    for (size_t i = 0; i < this->ellnum_bs; i++)
+    {
+        key_for_index.push_back(RlweCiphertext(N, bsModulus));
+    }
+
+    for (auto index : indexLists)
+    {
+        // encrypt automorphic^()(s)
+        this->generateSingleKeyBS(key_for_index, index, secret, this->ellnum_bs, this->PP_bs, this->BBg_bs);
+
+        keyMap.insert(std::pair<int32_t, std::vector<RlweCiphertext> >(index, key_for_index));
+    }
+}
+
+uint64_t AutoKeyBSGSRNS::getModulus() const
+{
+    return this->modulus;
+}
+
+uint64_t AutoKeyBSGSRNS::getBSModulus() const
+{
+    return this->bsModulus;
+}
+
+uint64_t AutoKeyBSGSRNS::getLength() const
+{
+    return this->length;
+}
+
+uint64_t AutoKeyBSGSRNS::getEllnumBS() const
+{
+    return this->ellnum_bs;
+}
+
+uint64_t AutoKeyBSGSRNS::getBgBS() const
+{
+    return this->BBg_bs;
+}
+
+uint64_t AutoKeyBSGSRNS::getBaseBS() const
+{
+    return this->PP_bs;
+}
+
+uint64_t AutoKeyBSGSRNS::getEllnumGS() const
+{
+    return this->ellnum_gs;
+}
+
+uint64_t AutoKeyBSGSRNS::getBgGS() const
+{
+    return this->BBg_gs;
+}
+
+uint64_t AutoKeyBSGSRNS::getBaseGS() const
+{
+    return this->PP_gs;
+}
+
+bool AutoKeyBSGSRNS::getIsNtt() const
+{
+    return this->isntt;
+}
+
+#ifdef INTEL_HEXL
+intel::hexl::NTT AutoKeyBSGSRNS::getNTT() const
+{
+    return ntts;
+}
+
+intel::hexl::NTT AutoKeyBSGSRNS::getBSNTT() const
+{
+    return bsNtts;
+}
+
+// used for offline keys only
+void AutoKeyBSGSRNS::setBsModules(uint64_t modules)
+{
+    this->bsModulus = modules;
+}
+
+void AutoKeyBSGSRNS::setBSNTT(intel::hexl::NTT& ntts)
+{
+    this->bsNtts = ntts;
+}
+
+#endif

@@ -11,6 +11,8 @@
 #include "lwe.h"
 #include "ntt.h"
 #include "utils.h"
+#include "twosteps.h"
 
+#include "crt.h"
 
 #endif

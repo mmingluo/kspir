@@ -616,7 +616,7 @@ void evalAuto(RlweCiphertext& result, const int32_t index, const AutoKey& autoke
 
     // keyswitch
     std::vector<std::vector<uint64_t> > dec_a(ellnum, std::vector<uint64_t>(length, 0));
-    decompose(dec_a, temp_a, ellnum, autokey.getBase(), autokey.getBg());
+    decompose(dec_a, temp_a, ellnum, autokey.getBase(), autokey.getBg(), modulus);
 
     std::vector<RlweCiphertext> autokey_index = autokey.keyMap.at(index);
 

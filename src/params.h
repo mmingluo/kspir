@@ -6,13 +6,15 @@
 #define INTEL_HEXL
 
 #define SECURITY
+#define USE_CRTMOD
 
 #define THREADS
 
 #ifndef SECURITY
 #define N 256 // 256
 #else
-#define N 4096 // 256
+#define N 4096
+// #define N 2048
 #endif
 
 #ifdef THREADS
@@ -84,6 +86,33 @@
 
 #define ell 3 // 3
 #define Base 0 // have to set to zero
+
+
+
+// bsgs
+#if N == 4096
+    #define bsgsp 40961 // 40961 % 8192 = 1
+    #ifndef USE_CRTMOD
+    #define bsgsDelta 27487119621
+    #else
+    #define bsgsDelta 1635084342169
+    #endif
+#elif N == 2048
+    #define bsgsp 40961 // 40961 % 8192 = 1
+    #ifndef USE_CRTMOD
+    #define bsgsDelta 27487119621
+    #else
+    #define bsgsDelta 1635084342169
+    #endif
+#elif N == 256
+    #define bsgsp 7681  // 7681  % 512  = 1
+    #ifndef USE_CRTMOD
+    #define bsgsDelta 146582464109
+    #else
+    #define bsgsDelta 8719527371384
+    #endif
+#endif
+
 
 
 /*

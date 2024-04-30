@@ -3,12 +3,14 @@
 #include "secret.h"
 #include "ntt.h"
 
+#include "crt.h"
+
 #ifdef INTEL_HEXL
 #include <hexl/hexl.hpp>
 #endif
 
 // default construct: set Hanmming weight as 2/3*n
-Secret::Secret(uint64_t module): modulus(module)
+Secret::Secret(uint64_t module, bool ntt): modulus(module), nttform(ntt)
 {
     this->length = N;
     this->lwe_type = RLWE;
@@ -36,8 +38,14 @@ Secret::Secret(uint64_t module): modulus(module)
 #ifdef INTEL_HEXL
     // int64_t* temp = new int64_t[this->length];
 
-    intel::hexl::NTT ntts(length, modulus);
-    this->ntts = ntts;
+    if (modulus == crtMod)
+    {
+        intel::hexl::NTT ntts(N, crtMod, root_of_unity_crt);
+        this->ntts = ntts;
+    } else {
+        intel::hexl::NTT ntts(length, modulus);
+        this->ntts = ntts;
+    }
 
     for (size_t i = 0; i < length; i++)
     {
@@ -45,12 +53,11 @@ Secret::Secret(uint64_t module): modulus(module)
         this->data.push_back(temp < 0 ? (uint64_t)(temp + modulus) : (uint64_t)temp);
     }
 
-    this->ntts.ComputeForward(data.data(), data.data(), 1, 1);
-
-    this->nttform = true;
-
+    if (ntt)
+    {
+        this->ntts.ComputeForward(data.data(), data.data(), 1, 1);
+    }
 #endif
-
 }
 
 Secret::Secret(LWE_TYPE type, uint64_t module) : lwe_type(type), modulus(module)
@@ -60,8 +67,14 @@ Secret::Secret(LWE_TYPE type, uint64_t module) : lwe_type(type), modulus(module)
     this->nttform = false;
 
 #ifdef INTEL_HEXL
-    intel::hexl::NTT ntts(length, modulus);
-    this->ntts = ntts;
+    if (module == crtMod)
+    {
+        intel::hexl::NTT ntts(N, crtMod, root_of_unity_crt);
+        this->ntts = ntts;
+    } else {
+        intel::hexl::NTT ntts(length, module);
+        this->ntts = ntts;
+    }
 #endif
 
     // int32_t* temp = new int32_t[this->length];

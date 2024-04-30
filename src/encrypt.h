@@ -55,7 +55,12 @@ void encrypt_rns(RlweCiphertext& cipher1, RlweCiphertext& cipher2,
 void encrypt_rns(std::vector<uint64_t>& b1, std::vector<uint64_t>& a1,
                     std::vector<uint64_t>& b2, std::vector<uint64_t>& a2,
                     Secret& secret, std::vector<uint64_t>& message1, std::vector<uint64_t>& message2,
-                    int32_t num = 0);
+                    int32_t num = 0, uint64_t modulus2 = bigMod2);
+
+void encrypt_rns_bsgs_autokey(std::vector<uint64_t>& b1, std::vector<uint64_t>& a1,
+                    std::vector<uint64_t>& b2, std::vector<uint64_t>& a2,
+                    Secret& secret, std::vector<uint64_t>& message1, std::vector<uint64_t>& message2,
+                    uint64_t modulus2);
 
 /**
  * @brief used to remove term 2^l. (lazy variant)
@@ -71,6 +76,15 @@ void encrypt_rns(std::vector<uint64_t>& b1, std::vector<uint64_t>& a1,
 void encrypt_special_rlwe(uint64_t* b, uint64_t* a, Secret& secret, uint64_t* message, int32_t lwesnum);
 
 void encrypt(RlweCiphertext& cipher, Secret& secret, std::vector<uint64_t>& message);
+
+/**
+ * @brief encrypt for rns bsgs algorithm
+ * @param cipher encrypted cipher
+ * @param secret secret
+ * @param message stored in coefficients form
+ *
+*/
+void encrypt_rns_bsgs(std::vector<RlweCiphertext>& cipher, Secret& secret, std::vector<uint64_t>& message);
 
 /**
  * @brief 

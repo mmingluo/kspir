@@ -9,43 +9,47 @@
 
 void test_packing_lwes()
 {
-    int32_t l = 3; // 5
+    int32_t l = 4; // 6; // 5
     int32_t lwesNum = 0x01 << l;
+    // uint64_t modulus = bigMod;
+    uint64_t modulus = crtMod;
 
     // Secret answerKey(bigMod);
-    Secret answerKey(LWE, bigMod);
+    Secret answerKey(LWE, modulus);
 
     uint64_t length = answerKey.getLength();
-    uint64_t moudlus = answerKey.getModulus();
 
     std::vector<RlweCiphertext> lwes;
     for (size_t i = 0; i < lwesNum; i++)
     {
-        lwes.push_back(RlweCiphertext(N, bigMod));
+        lwes.push_back(RlweCiphertext(N, modulus));
     }
 
     std::vector<uint64_t> message(lwesNum), decryptd_message(length);
-    sample_random(message, moudlus);
+    sample_random(message, modulus);
     //for (auto iter = message.begin(); iter != message.end(); iter++)
     //    *iter = 1234567891234;
-    showVector(message, "The message is ");
+    // showVector(message, "The message is ");
+    showLargeVector(message, "The message is ");
 
     auto start_b = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < lwesNum; i++)
     {
         encrypt(lwes[i].b.data(), lwes[i].a.data(), answerKey, message[i]);
-        lweToRlwe(lwes[i].a);
+        lweToRlwe(lwes[i].a, modulus);
     }
     auto stop_b = std::chrono::high_resolution_clock::now();
 
     auto glapsed_b = std::chrono::duration_cast<std::chrono::microseconds>(stop_b - start_b);
     std::cout << "encryption costs " << glapsed_b.count() << " us." << std::endl;
 
-    AutoKey autokey;
+    AutoKey autokey(length, modulus, 4, 0, 0x01 << 14);
+    // AutoKey autokey(length, modulus, 3, 0x01 << 14, 0x01 << 12);
+    // AutoKey autokey;
     autokey.keyGen(answerKey, lwesNum);
 
     // the results
-    RlweCiphertext result;
+    RlweCiphertext result(N, modulus);
 
 int ntimes = 1;
 
@@ -63,7 +67,7 @@ for (size_t i = 0; i < ntimes; i++)
     // decrypt message
     decrypt(decryptd_message, result, answerKey);
 
-    multConst(decryptd_message, QInv(lwesNum)); // remove term 2^l
+    multConst(decryptd_message, QInv(lwesNum, modulus), modulus); // remove term 2^l
     std::cout << std::endl;
 
     showLargeIntervalVector(decryptd_message, length / lwesNum, "The decrypted value is ");

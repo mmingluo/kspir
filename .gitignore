@@ -12,3 +12,6 @@ build/*
 
 #others
 other_tests
+
+# tests
+tests/test-multi.cpp

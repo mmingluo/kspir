@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(CMAKE_CXX_COMPILER "clang++")
+set(CMAKE_CXX_COMPILER "/usr/bin/clang++")
 
 #option(CMAKE_BUILD_TYPE "Building Type" Debug)
 
@@ -20,13 +20,16 @@ if(NOT CMAKE_BUILD_TYPE)
 endif(NOT CMAKE_BUILD_TYPE)
 #set(CMAKE_BUILD_TYPE Release)
 
+# message(STATUS "CMAKE_CXX_FLAGS_DEBUG:   ${CMAKE_CXX_FLAGS_DEBUG}")
+
+set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -g -O0 -Wall -march=native")
 set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O2 -Wall -march=native")
 
 option(EXTRA_TESTS "EXTRA_TESTS: enable extra tests" ON)
 
-message(STATUS "CMAKE_BUILD_TYPE: ${CMAKE_BUILD_TYPE}")
-message(STATUS "EXTRA_TESTS:      ${EXTRA_TESTS}")
-
+message(STATUS "CMAKE_BUILD_TYPE:   ${CMAKE_BUILD_TYPE}")
+message(STATUS "EXTRA_TESTS:        ${EXTRA_TESTS}")
+message(STATUS "CMAKE_CXX_COMPILER: ${CMAKE_CXX_COMPILER}")
 
 # Using intel hexl
 find_package(HEXL 1.2.5

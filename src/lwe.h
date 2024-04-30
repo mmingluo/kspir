@@ -7,6 +7,11 @@
 
 #include "params.h"
 #include "secret.h"
+#include "crt.h"
+
+#ifdef INTEL_HEXL
+    #include <hexl/hexl.hpp>
+#endif
 
 class LweCiphertext
 {
@@ -129,7 +134,9 @@ public:
 
     RGSWCiphertext(/* args */);
 
-    RGSWCiphertext(uint64_t len, uint64_t module); 
+    RGSWCiphertext(uint64_t len, uint64_t module);
+
+    RGSWCiphertext(uint64_t len, uint64_t module, uint64_t elln, uint64_t base, uint64_t bg); 
 
     void keyGen(Secret& secret, const uint64_t index, bool is_reverse = false);
 
@@ -195,12 +202,17 @@ public:
 
     AutoKey(/* args */);
 
-    AutoKey(int32_t len, uint64_t module, int32_t elln);
+    AutoKey(int32_t len, uint64_t module, int32_t elln, uint64_t base, uint64_t bg);
+
+    void generateSingleKey(std::vector<RlweCiphertext>& result, int32_t index, 
+                    Secret& secret);
 
     void generateSingleKey(std::vector<RlweCiphertext>& result, int32_t index,
                     int32_t num, Secret& secret);
 
     void keyGen(Secret& secret, const int32_t num);
+
+    void keyGen(Secret& secret, const std::vector<int32_t> indexLists);
 
     uint64_t getModulus() const;
 
@@ -281,5 +293,170 @@ void externalProduct(RlweCiphertext& result, RlweCiphertext& firstDim, const RGS
 
 void addRnsCiphertext(RlweCiphertext& result1, RlweCiphertext& result2,
                         RlweCiphertext& input1, RlweCiphertext& input2);
+
+
+enum StepName {BabyStep, GaintStep};
+
+/**
+ * @brief public key for automorphic transform in bsgs algorithm
+ *        the difference from AutoKey is that we have two ellnums, where the one is for baby step
+ *        and the other one is for giant step
+ * 
+ */
+class AutoKeyBSGS
+{
+private:
+    /* data */
+    uint64_t length = N;
+    uint64_t modulus = bigMod;
+
+    // parameters for baby step
+    // TODO: change parameter
+    int32_t ellnum_bs = 8; // 5; // 3; // 4
+    uint64_t PP_bs = 0; // 0x01 << 8; // 0x01 << 10; // 13;// 0x01 << 11; // the base
+    uint64_t BBg_bs = 0x01 << 7; // 0x01 << 7; // 0x01 << 8;
+
+    // std::vector<int32_t> indexLists;
+
+    // parameters for giant step
+    int32_t ellnum_gs = 3; // 3; // 6; // 3;
+    uint64_t PP_gs = 0x01 << 11; // 0x01 << 11; // 0x01 << 8; // 0x01 << 12;
+    uint64_t BBg_gs = 0x01 << 15; // 0x01 << 7; // 0x01 << 14;
+
+    bool isntt = false;
+
+// for 2nd folding
+#ifdef INTEL_HEXL
+    intel::hexl::NTT ntts;
+#endif
+
+public:
+    // the map between index and RLWE ciphertext vector
+	std::map<int32_t, std::vector<RlweCiphertext> > keyMap;
+
+    AutoKeyBSGS(/* args */);
+
+    AutoKeyBSGS(int32_t len, uint64_t module);
+
+    AutoKeyBSGS(int32_t len, uint64_t module, int32_t elln_bs, int32_t elln_gs);
+
+    void generateSingleKey(std::vector<RlweCiphertext>& result, int32_t index,
+                           Secret& secret, const int32_t ellnum, const uint64_t PP,
+                           const uint64_t BBg);
+
+    void keyGen(Secret& secret, const std::vector<int32_t> indexLists, StepName stepname = BabyStep);
+
+    uint64_t getModulus() const;
+
+    uint64_t getLength() const;
+
+    uint64_t getEllnumBS() const;
+
+    uint64_t getBgBS() const;
+
+    uint64_t getBaseBS() const;
+
+    uint64_t getEllnumGS() const;
+
+    uint64_t getBgGS() const;
+
+    uint64_t getBaseGS() const;
+
+    bool getIsNtt() const;
+
+#ifdef INTEL_HEXL
+    intel::hexl::NTT getNTT() const;
+#endif
+    
+    // ~RlweCiphertext();
+};
+
+
+/**
+ * @brief public key for automorphic transform in bsgs algorithm
+ *        the difference from AutoKeyBSGS is that we use RNS for the baby step.
+ *        And then we do a modswitch.
+ * 
+ */
+class AutoKeyBSGSRNS
+{
+private:
+    /* data */
+    uint64_t length = N;
+    uint64_t modulus = crtMod;
+    uint64_t bsModulus = bsMod; // this modulu is for baby step
+
+    // parameters for baby step
+    // TODO: change parameter
+    int32_t ellnum_bs = 3; // 5; // 3; // 4
+    uint64_t PP_bs = 0x01 << 20; // 0x01 << 8; // 0x01 << 10; // 13;// 0x01 << 11; // the base
+    uint64_t BBg_bs = 0x01 << 20; // 0x01 << 7; // 0x01 << 8;
+
+    // std::vector<int32_t> indexLists;
+
+    // parameters for giant step
+    int32_t ellnum_gs = 3; // 3; // 6; // 3;
+    uint64_t PP_gs = 0x01 << 11; // 0x01 << 11; // 0x01 << 8; // 0x01 << 12;
+    uint64_t BBg_gs = 0x01 << 15; // 0x01 << 7; // 0x01 << 14;
+
+    bool isntt = false;
+
+// for 2nd folding
+#ifdef INTEL_HEXL
+    intel::hexl::NTT ntts;
+    intel::hexl::NTT bsNtts;
+#endif
+
+public:
+    // the map between index and RLWE ciphertext vector
+	std::map<int32_t, std::vector<RlweCiphertext> > keyMap;
+
+    AutoKeyBSGSRNS(/* args */);
+
+    AutoKeyBSGSRNS(int32_t len, uint64_t module, uint64_t bsModule);
+
+    AutoKeyBSGSRNS(int32_t len, uint64_t module, uint64_t bsModule, int32_t elln_bs, uint64_t pp_bs, uint64_t bbg_bs);
+
+    void generateSingleKeyBS(std::vector<RlweCiphertext>& result, int32_t index,
+                           Secret& secret, const int32_t ellnum, const uint64_t PP,
+                           const uint64_t BBg);
+
+    void generateSingleKeyGS(std::vector<RlweCiphertext>& result, int32_t index,
+                            Secret& secret, const int32_t ellnum, const uint64_t PP,
+                            const uint64_t BBg);
+
+    void keyGen(Secret& secret, const std::vector<int32_t> indexLists, StepName stepname = BabyStep);
+
+    uint64_t getModulus() const;
+    
+    uint64_t getBSModulus() const;
+
+    uint64_t getLength() const;
+
+    uint64_t getEllnumBS() const;
+
+    uint64_t getBgBS() const;
+
+    uint64_t getBaseBS() const;
+
+    uint64_t getEllnumGS() const;
+
+    uint64_t getBgGS() const;
+
+    uint64_t getBaseGS() const;
+
+    bool getIsNtt() const;
+
+#ifdef INTEL_HEXL
+    intel::hexl::NTT getNTT() const;
+    intel::hexl::NTT getBSNTT() const;
+
+    // used for offline keys only
+    void setBsModules(uint64_t modules);
+    void setBSNTT(intel::hexl::NTT& ntts);
+#endif
+    
+    // ~RlweCiphertext();
+};
 
 #endif
