@@ -36,9 +36,9 @@ void test_decompose_bsgs()
     sample_random(a1, modulus);
     sample_random(a2, bsModulus);
 
-    int32_t ellnum = 8;
-    uint64_t base = 0;
-    uint64_t BBg = 0x01 << 10;
+    int32_t ellnum = 4; // 8;
+    uint64_t base = 1024; // 0;
+    uint64_t BBg = 0x01 << 20; // 0x01 << 10;
     std::vector<std::vector<uint64_t> > dec_a1(ellnum, std::vector<uint64_t>(N, 0));
     std::vector<std::vector<uint64_t> > dec_a2(ellnum, std::vector<uint64_t>(N, 0));
     decompose_bsgs(dec_a1, dec_a2, a1, a2, ellnum, base, BBg);
@@ -210,8 +210,8 @@ void test_automorphic_transform_rns()
  */
 void test_external_product()
 {
-    uint64_t modulus = bigMod;
-    // uint64_t modulus = crtMod;
+    // uint64_t modulus = bigMod;
+    uint64_t modulus = crtMod;
     
     Secret answerKey(modulus); // default rlwe secret, store in ntt form
     RlweCiphertext cipher(N , modulus);
@@ -856,6 +856,81 @@ void test_compute_root_of_unity()
 #endif
 }
 
+void test_inversedb()
+{
+    uint64_t length = N;
+    std::vector<uint64_t> message(length, 0);
+
+    for (size_t i = 0; i < length; i++)
+        message[i] = i + 1;
+    
+    // encode
+    std::vector<int32_t> query_encode(length, 0);
+    compute_query_encode(query_encode, length);
+
+    std::vector<uint64_t> temp(length, 0);
+    copy(message.begin(), message.end(), temp.begin());
+    for (size_t j = 0; j < N; j++)
+    {
+        message[query_encode[j]] = temp[j];
+    }
+
+    intel::hexl::NTT nttp(length, bsgsp);
+    nttp.ComputeInverse(message.data(), message.data(), 1, 1);
+
+    // decode
+    nttp.ComputeForward(message.data(), message.data(), 1, 1);
+
+    std::vector<int32_t> query_decode(length, 0);
+    compute_query_decode(query_decode, length);
+
+    // std::vector<uint64_t> temp(length, 0);
+    copy(message.begin(), message.end(), temp.begin());
+    for (size_t j = 0; j < N; j++)
+    {
+        message[query_decode[j]] = temp[j];
+    }
+
+    showLargeVector(message, "Decrypted message:");
+}
+
+void test_forwarddb()
+{
+    uint64_t length = N;
+    std::vector<uint64_t> message(length, 0);
+
+    for (size_t i = 0; i < length; i++)
+        message[i] = i + 1;
+    
+    // encode
+    std::vector<int32_t> query_encode(length, 0);
+    compute_query_encode(query_encode, length);
+
+    std::vector<uint64_t> temp(length, 0);
+    copy(message.begin(), message.end(), temp.begin());
+    for (size_t j = 0; j < N; j++)
+    {
+        message[query_encode[j]] = temp[j];
+    }
+
+    intel::hexl::NTT nttp(length, bsgsp);
+    nttp.ComputeInverse(message.data(), message.data(), 1, 1);
+
+    // decode
+    nttp.ComputeForward(message.data(), message.data(), 1, 1);
+
+    std::vector<int32_t> query_decode(length, 0);
+    compute_query_decode(query_decode, length);
+
+    // std::vector<uint64_t> temp(length, 0);
+    copy(message.begin(), message.end(), temp.begin());
+    for (size_t j = 0; j < N; j++)
+    {
+        message[query_decode[j]] = temp[j];
+    }
+
+    showLargeVector(message, "Decrypted message:");
+}
 
 int main(int argc, char** argv)
 {
@@ -883,6 +958,7 @@ int main(int argc, char** argv)
     // computeMiniRoot();
     // test_ntt_crt(); // mini root of unity of default root of unity
     // test_compute_root_of_unity();
+    // test_inversedb();
 
 
 #if defined(__AVX2__)

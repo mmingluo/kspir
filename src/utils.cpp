@@ -459,6 +459,34 @@ uint128_t compute_mult_qinvqi_bsgs_ba(uint64_t input, uint64_t qinv, uint64_t qi
     return result;
 }
 
+uint128_t compute_mult_qinvqi_bsgs_aux(uint64_t input, uint64_t qinv, uint64_t qi, uint64_t modulus2 = auxMod)
+{
+    uint128_t modulus = static_cast<uint128_t>(crtMod) * modulus2;
+
+    uint128_t two128_mod = (static_cast<uint128_t>(two128_mod_hignbits_aux) << 63) + 
+                static_cast<uint128_t>(two128_mod_lowbits_aux);
+    uint128_t lowbits_mask = (static_cast<uint128_t>(0x01) << 64) - 1;
+
+    /**
+     * (2^64 a + b) * c
+     * = 2^64 ac + bc
+     * = 2^128 ac_hign + 2^64 ac_low + bc
+     * 
+     * */ 
+    uint128_t input_mult_factor = static_cast<uint128_t>(qi) * qinv;
+    uint128_t input_mult_factor_hignbits = input_mult_factor >> 64; // a
+    uint128_t input_mult_factor_lowbits = input_mult_factor & lowbits_mask; // b
+
+    uint128_t temp = static_cast<uint128_t>(input) * input_mult_factor_hignbits; // ac
+
+    uint128_t result = (temp >> 64) * static_cast<uint128_t>(two128_mod) % modulus;
+    result += (temp << 64) % modulus;
+    result += input * input_mult_factor_lowbits;
+    result %= modulus;
+
+    return result;
+}
+
 // q1 and q2 should not be too large
 // TODO: check it
 /**
@@ -499,6 +527,27 @@ void crt_inv_bsgs(std::vector<uint128_t>& result, const std::vector<uint64_t>& i
     {
         result[i] = compute_mult_qinvqi_bsgs(input1[i], q2inv, modulus2);
         result[i] += compute_mult_qinvqi_bsgs(input2[i], q1inv, modulus1);
+        result[i] %= modulus; 
+    }
+}
+
+// aux modulus variant of crt_inv_bsgs
+void crt_inv_bsgs_aux(std::vector<uint128_t>& result, const std::vector<uint64_t>& input1,
+            const std::vector<uint64_t>& input2, uint64_t modulus1, uint64_t modulus2)
+{
+    assert(modulus1 == crtMod);
+    assert(modulus2 == auxMod);
+    uint128_t modulus = static_cast<uint128_t>(modulus1) * modulus2;
+
+    // uint64_t q2inv = bsModInv;
+    // uint64_t q1inv = crtModInv;
+    uint64_t q2inv = auxModInv;
+    uint64_t q1inv = crtModInvAux;
+
+    for (size_t i = 0; i < N; i++)
+    {
+        result[i] = compute_mult_qinvqi_bsgs_aux(input1[i], q2inv, modulus2);
+        result[i] += compute_mult_qinvqi_bsgs_aux(input2[i], q1inv, modulus1);
         result[i] %= modulus; 
     }
 }
@@ -1139,6 +1188,78 @@ void decompose_bsgs(std::vector<std::vector<uint64_t> >& result1, std::vector<st
     }
 }
 
+// aux modulus variant of decompose_bsgs
+void decompose_bsgs_aux(std::vector<std::vector<uint64_t> >& result1, std::vector<std::vector<uint64_t> >& result2,
+                const std::vector<uint64_t>& input1, const std::vector<uint64_t>& input2,
+                int32_t ellnum, uint64_t base, uint64_t BBg)
+{
+    // TODO: here use directly macro
+    uint64_t length = N;
+    uint64_t modulus1 = crtMod;
+    uint64_t modulus2 = auxMod;
+    uint128_t modulus = static_cast<uint128_t>(modulus1) * modulus2;
+
+    std::vector<uint128_t> input(length);
+    crt_inv_bsgs_aux(input, input1, input2, modulus1, modulus2);
+
+    // uint64_t half_modulus = modulus >> 1;
+    int64_t gBits = log2(BBg);
+    int64_t baseBits = 0;
+    if (base != 0)
+    {
+        baseBits = log2(base);
+    }
+
+    int32_t nativeSubgBits = 128 - gBits;
+
+    // offset = BBg/2 * (multfactors) + base/2
+    // We use unsignd digit decompose firstly and then we substract Bg/2 for each decomposed element.
+    // Therefore, adding an offset ensures it always correct
+    uint128_t offset = 0;
+    for (size_t i = 0; i < ellnum; i++)
+    {
+        offset += (uint128_t)0x01 << (baseBits + i * gBits);
+    }
+    offset <<= (gBits - 1); // offset *= BBg/2
+    offset += base / 2;
+
+    uint128_t d;
+    for (size_t i = 0; i < length; i++)
+    {
+        d = input[i] + offset;
+        if (d > modulus)
+            // d - modulus < modulus, so the following decomposition is valid
+            d -= modulus;
+
+        d >>= baseBits;
+
+        // note: the signed digit decompose is optimal
+        for (size_t j = 0; j < ellnum; j++)
+        {
+            // Faster variant(refer to OpenFHE) 
+            // int64_t r = d << nativeSubgBits;
+            // r >>= nativeSubgBits;
+
+            // in theory
+            // int64_t r = d & ((0x01 << gBits) - 1);
+            // if (r >= BBg/2) r -= BBg;
+            int64_t r = d << nativeSubgBits >> nativeSubgBits; // least gBits bits
+            r -= BBg / 2;
+
+            d >>= gBits;
+
+            if (r >= 0)
+            {
+                result1[j][i] = r;
+                result2[j][i] = r;
+            } else {
+                result1[j][i] = r + modulus1;
+                result2[j][i] = r + modulus2;
+            }
+        }
+    }
+}
+
 /**
  * @brief decompose for rns RLWE ciphertexts(two part), not rns-decompose
 */
@@ -1488,6 +1609,42 @@ void compute_permutation_matrix(std::vector<std::vector<int32_t> >& permutations
     for (size_t index = 0; index < max_index; index++)
     {
         compute_inter_permutation(inter_permutation, rotate_index, index, length);
+
+        //  permutation = hexl_ntt_index \circ inter_permutation \circ find_index
+        for (size_t i = 0; i < length; i++)
+        {
+            permutations[index][i] = find_index[inter_permutation[hexl_ntt_index[i] >> 0x01] >> 0x01];
+        }
+    }
+}
+
+/**
+ * @brief compuate interval permutaion matrix for a max index
+ * return indexes: 0, N1, 2 * N1, 3 * N1, \cdots, (max_index - 1) * N1
+ * 
+ */
+void compute_interval_permutation_matrix(std::vector<std::vector<int32_t> >& permutations, 
+                                const int32_t max_index, const int32_t N1, const int32_t length)
+{
+    std::vector<int32_t> hexl_ntt_index(length, 0);
+    std::vector<int32_t> rotate_index(length, 0);
+    compute_hexl_rotate_indexes(hexl_ntt_index, rotate_index, length);
+
+    // [0, 1, 2, 3, 4, \cdots, 2048, \cdots]
+    // [1, 3, 5, 7, 9, \cdots, 4097, \cdots]
+    // [0, *, *, *, *, \cdots,    1, \cdots]
+    std::vector<int32_t> find_index(length, 0);
+    for (size_t i = 0; i < length; i++)
+    {
+        find_index[hexl_ntt_index[i] >> 0x01] = i;
+    }
+
+    // compute permutation matrix
+    std::vector<int32_t> inter_permutation(length, 0);
+    for (size_t index = 0; index < max_index; index++)
+    {
+        // compute permutation matrix for each index * N1
+        compute_inter_permutation(inter_permutation, rotate_index, index * N1, length);
 
         //  permutation = hexl_ntt_index \circ inter_permutation \circ find_index
         for (size_t i = 0; i < length; i++)

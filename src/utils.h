@@ -96,6 +96,10 @@ void decompose_bsgs_ba(std::vector<std::vector<uint64_t> >& result1, std::vector
                 const std::vector<uint64_t>& input1, const std::vector<uint64_t>& input2,
                 int32_t ellnum, uint64_t base, uint64_t BBg);
 
+void decompose_bsgs_aux(std::vector<std::vector<uint64_t> >& result1, std::vector<std::vector<uint64_t> >& result2,
+                const std::vector<uint64_t>& input1, const std::vector<uint64_t>& input2,
+                int32_t ellnum, uint64_t base, uint64_t BBg);
+
 inline void element_to_vector(std::vector<uint64_t>& result, uint64_t input)
 {
     for (auto iter = result.begin(); iter != result.end(); iter++)
@@ -124,6 +128,9 @@ void compute_permutation(std::vector<int32_t>& permutation,
 
 void compute_permutation_matrix(std::vector<std::vector<int32_t> >& permutations, 
                                 const int32_t max_indexs, const int32_t length);
+
+void compute_interval_permutation_matrix(std::vector<std::vector<int32_t> >& permutations, 
+                                const int32_t max_indexs, const int32_t N1, const int32_t length);
 
 void compute_query_encode(std::vector<int32_t>& query_encode, const int32_t length = N);
 

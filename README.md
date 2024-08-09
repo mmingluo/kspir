@@ -37,7 +37,7 @@ make
 sudo make install
 ```
 
-After install [Intel HEXL](https://github.com/intel/hexl), you can build and run our tests by
+After install [Intel HEXL](https://github.com/intel/hexl), you can build and run our PIR protocol by
 
 ```
 cd kspir
@@ -45,5 +45,22 @@ mkdir build
 cd build
 cmake ..
 make
-./tests/test-two-steps
+./tests/test-pir
+```
+
+
+An example output:
+```
+Packing number: 16
+Database configuration: 32768 * 8 KB, total database size 256 MB
+BSGS parameters: (N1: 128, N2: 16)
+
+target_col: 177, target_packing: 4
+
+ server preprocessing costs 4144 ms.
+ query costs 7873 us.
+ online server response costs 236635 us.
+ decrypt costs 284 us.
+
+the recovered result = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, ..., 4096]
 ```

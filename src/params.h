@@ -91,11 +91,11 @@
 
 // bsgs
 #if N == 4096
-    #define bsgsp 40961 // 40961 % 8192 = 1
+    #define bsgsp 65537 // 40961 // 40961 % 8192 = 1
     #ifndef USE_CRTMOD
     #define bsgsDelta 27487119621
     #else
-    #define bsgsDelta 1635084342169
+    #define bsgsDelta 1021937069741 // 1635084342169 for 40961
     #endif
 #elif N == 2048
     #define bsgsp 40961 // 40961 % 8192 = 1

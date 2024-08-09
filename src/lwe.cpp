@@ -506,20 +506,36 @@ void AutoKey::generateSingleKey(std::vector<RlweCiphertext>& result, int32_t ind
  * @param secret 
  * @param num packing numbers
  */
-void AutoKey::keyGen(Secret& secret, const int32_t num)
+void AutoKey::keyGen(Secret& secret, const int32_t num, bool packing_rlwe)
 {
     std::vector<int32_t> indexLists;
     // Algorithm 2: PackLWEs
-    for (size_t i = 2; i <= num + 1; i <<= 1)
+    if (!packing_rlwe)
     {
-        indexLists.push_back(i + 1);
+        // for packing LWE ciphertexts
+        for (size_t i = 2; i <= num + 1; i <<= 1)
+        {
+            indexLists.push_back(i + 1);
+        }
+    } else {
+        // for packing RLWE ciphertexts
+        for (size_t i = 1; i < num; i <<= 1)
+        {
+            indexLists.push_back(N/i + 1);
+        }
     }
     int32_t log2Nn = log2(length / num);
     // Algorithm 1: EvalTrNn
     for (size_t k = 1; k <= log2Nn; k++)
     {
-        int32_t index = (length >> k << 1) + 1;
-        indexLists.push_back(index);
+        /**
+         *  lazy variant in [https://eprint.iacr.org/2020/015].
+         *  Because we don't have to let unwanted coefficients to be zeros. Therefore, we let
+         *  evalTrNn function invisible.
+         **/
+
+        // int32_t index = (length >> k << 1) + 1;
+        // indexLists.push_back(index);
     }
 
     std::vector<RlweCiphertext> key_for_index(this->ellnum);
@@ -1122,6 +1138,25 @@ void AutoKeyBSGSRNS::keyGen(Secret& secret, const std::vector<int32_t> indexList
 
         keyMap.insert(std::pair<int32_t, std::vector<RlweCiphertext> >(index, key_for_index));
     }
+}
+
+void AutoKeyBSGSRNS::bsgsKeyGen(Secret& secret, int32_t N1)
+{
+    int32_t N2 = N / 2 / N1;
+
+    std::vector<int32_t> indexLists;
+    for (size_t i = 1; i <= N1 / 2; i++)
+    {
+        indexLists.push_back(pow_mod(5, i, 2 * N));
+    }
+    keyGen(secret, indexLists, BabyStep);
+
+    indexLists.clear();
+    for (size_t i = 1; i < N2; i++)
+    {
+        indexLists.push_back(pow_mod(5, N1 * i, 2 * N));
+    }
+    keyGen(secret, indexLists, GaintStep);
 }
 
 uint64_t AutoKeyBSGSRNS::getModulus() const

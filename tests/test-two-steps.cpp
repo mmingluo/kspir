@@ -321,9 +321,11 @@ void test_two_steps_bsgs_rns()
         data[i][col] = i + 1;
     std::cout << "the wanted message is " << data[row][col] << std::endl;
 
-    int32_t N1 = 128; // 64;
+    int32_t N1 = 128; // 128; // 64;
     int32_t N2 = N / 2 / N1;
     std::cout << "N1: " << N1 << ", N2: " << N2 << std::endl;
+
+auto start_prep = std::chrono::high_resolution_clock::now();
 
     std::vector<std::vector<uint64_t> > data_ntt(N/2, std::vector<uint64_t>(N, 0));
     database_tobsgsntt(data_ntt, data, crtMod, N1);
@@ -331,6 +333,10 @@ void test_two_steps_bsgs_rns()
     size_t num_words = N * N / 2;
     uint64_t* datacrt = (uint64_t *)aligned_alloc(64, sizeof(uint64_t) * num_words);
     database_tocrt(datacrt, data_ntt, N1);
+
+auto stop_prep = std::chrono::high_resolution_clock::now();
+    auto glapsed_prep = std::chrono::duration_cast<std::chrono::milliseconds>(stop_prep - start_prep);
+    std::cout << " server preprocessing costs " << glapsed_prep.count() << " ms." << std::endl;
 
     // auto start_qu = std::chrono::high_resolution_clock::now();
     std::vector<RlweCiphertext> query1(1, RlweCiphertext(N, crtMod));
@@ -341,8 +347,9 @@ void test_two_steps_bsgs_rns()
     // uint64_t moudlus = answerKey.getModulus();
 
     AutoKeyBSGSRNS autoKey(N, crtMod, bsMod);
+    // AutoKeyBSGSRNS autoKey(N, crtMod, bsMod, 7, 0x01 << 10, 0x01 << 10);
     std::vector<int32_t> indexLists;
-    for (size_t i = 1; i < N1; i++)
+    for (size_t i = 1; i <= N1 / 2; i++)
     {
         indexLists.push_back(pow_mod(5, i, 2 * N));
     }
@@ -356,8 +363,8 @@ void test_two_steps_bsgs_rns()
     autoKey.keyGen(queryKey, indexLists, GaintStep);
 
     // compute permutation matrix
-    std::vector<std::vector<int32_t> > permutations(N1, std::vector<int32_t>(length, 0));
-    compute_permutation_matrix(permutations, N1, length);
+    std::vector<std::vector<int32_t> > permutations(N1 + 1, std::vector<int32_t>(length, 0));
+    compute_permutation_matrix(permutations, N1 + 1, length);
 
     // the results
     RlweCiphertext result(N, crtMod);
@@ -387,7 +394,11 @@ for (size_t i = 0; i < ntimes; i++)
 
 void test_two_steps_bsgs_rns_large()
 {
-    int32_t r = 16; // 256 MB
+    // r = 16     : 256 MB
+    // r = 64     :   1 GB
+    // r = 64 * 8 :   8 GB 
+
+    int32_t r = 64 * 8; // 256 MB
     
     Secret queryKey(crtMod, false); // stored in coefficient form
 
@@ -395,7 +406,7 @@ void test_two_steps_bsgs_rns_large()
     uint64_t col = 123;
 
     // sample database
-    int32_t N1 = 128; // 64;
+    int32_t N1 = 128; // 128; // 64;
     int32_t N2 = N / 2 / N1;
     std::cout << "r: " << r << ", N1: " << N1 << ", N2: " << N2 << std::endl;
 
@@ -405,6 +416,9 @@ void test_two_steps_bsgs_rns_large()
     std::vector<std::vector<uint64_t> > data(N, std::vector<uint64_t>(N/2, 0));
     std::vector<std::vector<uint64_t> > data_ntt(N/2, std::vector<uint64_t>(N, 0));
 
+
+std::chrono::milliseconds glapsed_prep = std::chrono::milliseconds(0);
+
 for (size_t k = 0; k < r; k++)
 {
     // std::vector<std::vector<uint64_t> > data_temp(data.begin(), data.begin() + N);
@@ -413,10 +427,15 @@ for (size_t k = 0; k < r; k++)
     for (size_t i = 0; i < N; i++)
         data[i][col] = i + 1;
     // std::cout << "the wanted message is " << data[row][col] << std::endl;
-
+auto start_prep = std::chrono::high_resolution_clock::now();
     database_tobsgsntt(data_ntt, data, crtMod, N1);
     database_tocrt(datacrt + num_words * k, data_ntt, N1);
+auto stop_prep = std::chrono::high_resolution_clock::now();
+glapsed_prep += std::chrono::duration_cast<std::chrono::milliseconds>(stop_prep - start_prep);
 }
+
+    std::cout << " server preprocessing costs " << glapsed_prep.count() << " ms." << std::endl;
+
 
     std::vector<RlweCiphertext> query1(1, RlweCiphertext(N, crtMod));
     query1.push_back(RlweCiphertext(N, bsMod));
@@ -433,7 +452,7 @@ for (size_t k = 0; k < r; k++)
 
     AutoKeyBSGSRNS autoKey(N, crtMod, bsMod);
     std::vector<int32_t> indexLists;
-    for (size_t i = 1; i < N1; i++)
+    for (size_t i = 1; i <= N1 / 2; i++)
     {
         indexLists.push_back(pow_mod(5, i, 2 * N));
     }
@@ -451,7 +470,9 @@ for (size_t k = 0; k < r; k++)
     compute_permutation_matrix(permutations, N1, length);
 
     // the results
-    RlweCiphertext result(N, crtMod);
+    // RlweCiphertext result(N, crtMod);
+    std::vector<RlweCiphertext> result(r, RlweCiphertext(N, crtMod));
+
     std::vector<uint64_t> decryptd_message(length);
 
 int ntimes = 1;
@@ -469,7 +490,7 @@ for (size_t i = 0; i < ntimes; i++)
 
     // decrypt message
     auto start_de = std::chrono::high_resolution_clock::now();
-    decrypt_bsgs(decryptd_message, result, queryKey);
+    decrypt_bsgs(decryptd_message, result[0], queryKey);
     auto stop_de = std::chrono::high_resolution_clock::now();
 
     auto glapsed_de = std::chrono::duration_cast<std::chrono::microseconds>(stop_de - start_de);
@@ -490,8 +511,8 @@ int main(int argc, char** argv)
     // test_two_steps_bsgs();
     // test_two_steps_bsgs_crtmod(); // basic test but for crtMod
     // test_two_steps_bsgs_crt();
-    test_two_steps_bsgs_rns();
-    // test_two_steps_bsgs_rns_large(); // packing r basic database
+    // test_two_steps_bsgs_rns();
+    test_two_steps_bsgs_rns_large(); // packing r basic database
 
     return 0;
 }

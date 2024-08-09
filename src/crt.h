@@ -59,6 +59,11 @@ constexpr uint64_t mini_root_of_unity = 10297991595;
     // two128_mod = 2^128 % (crtMod * crtBaMod) = 136175933503495683303827764855712
     #define two128_mod_hignbits_bsaux 14764224294473UL
     #define two128_mod_lowbits_bsaux 1483995998376346528ULL
+
+    #define crtModInvAux 73083388
+    // two128_mod = 2^128 % (crtMod * auxMod) = 12725562273183741650962405
+    #define two128_mod_hignbits_aux 1379708
+    #define two128_mod_lowbits_aux 2086958912630458341ULL
 #else
 #error "Please add more parameters."
 #endif

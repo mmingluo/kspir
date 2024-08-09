@@ -210,7 +210,7 @@ public:
     void generateSingleKey(std::vector<RlweCiphertext>& result, int32_t index,
                     int32_t num, Secret& secret);
 
-    void keyGen(Secret& secret, const int32_t num);
+    void keyGen(Secret& secret, const int32_t num, bool packing_rlwe = false);
 
     void keyGen(Secret& secret, const std::vector<int32_t> indexLists);
 
@@ -395,9 +395,13 @@ private:
     // std::vector<int32_t> indexLists;
 
     // parameters for giant step
-    int32_t ellnum_gs = 3; // 3; // 6; // 3;
-    uint64_t PP_gs = 0x01 << 11; // 0x01 << 11; // 0x01 << 8; // 0x01 << 12;
-    uint64_t BBg_gs = 0x01 << 15; // 0x01 << 7; // 0x01 << 14;
+    // int32_t ellnum_gs = 3;
+    // uint64_t PP_gs = 0x01 << 11;
+    // uint64_t BBg_gs = 0x01 << 15;
+
+    int32_t ellnum_gs = 2;
+    uint64_t PP_gs = 0x01 << 20;
+    uint64_t BBg_gs = 0x01 << 18;
 
     bool isntt = false;
 
@@ -426,6 +430,8 @@ public:
                             const uint64_t BBg);
 
     void keyGen(Secret& secret, const std::vector<int32_t> indexLists, StepName stepname = BabyStep);
+
+    void bsgsKeyGen(Secret& secret, int32_t N1);
 
     uint64_t getModulus() const;
     

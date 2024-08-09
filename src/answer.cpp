@@ -711,6 +711,34 @@ void convertTwoLWEs(RlweCiphertext& result, RlweCiphertext& cipher,
 }
 
 /**
+ * @brief the variant of packingLWEs algorithm. We packing RLWE ciphertexts instead of only LWE ciphertexts.
+ *  Refer to Algorithm 2 in [https://eprint.iacr.org/2020/015].
+ * @param result
+ * @param cipher1  the input RLWE ciphertext 2
+ * @param curl 
+ */
+void convertTwoRLWEs(RlweCiphertext& result, RlweCiphertext& cipher,
+                    const uint64_t twol, const uint64_t rlweNums,
+                    const AutoKey& autokey)
+{   
+    // int32_t XNdiv2l = N / twol;
+    int32_t XNdiv2l = rlweNums / twol;
+    
+    cipher.multConst(XNdiv2l);
+
+    RlweCiphertext temp = result;
+
+    result.subAndEqual(cipher);
+    cipher.addAndEqual(temp);
+
+    // int32_t index = twol + 1;
+    int32_t index = N / XNdiv2l + 1;
+    evalAuto(result, index, autokey);
+
+    result.addAndEqual(cipher);
+}
+
+/**
  * @brief 
  * 
  * @param result response of answer
@@ -760,6 +788,50 @@ void packingLWEs(RlweCiphertext& result, std::vector<RlweCiphertext>& lwes,
      **/
 
     // evalTrNn(result, log2(result.getLength() / lwesNum), autokey);
+}
+
+/**
+ * @brief 
+ * 
+ * @param result response of answer
+ * @param rlwes the requried packing rlwe ciphertexts.
+ *      The size should be power of two. lwes should be store in coefficient form.
+ */
+void packingRLWEs(RlweCiphertext& result, std::vector<RlweCiphertext>& rlwes,
+                 const AutoKey& autokey)
+{
+    // auto start = std::chrono::high_resolution_clock::now();
+    
+    uint64_t rlwesNum = rlwes.size(); // power of two
+
+    // the input lwes should be in coeffcient form
+#ifdef INTEL_HEXL
+    intel::hexl::NTT ntts = autokey.getNTT();
+    for (size_t i = 0; i < rlwesNum; i++)
+    {
+    if (rlwes[i].getIsNtt())
+        {
+            ntts.ComputeInverse(rlwes[i].a.data(), rlwes[i].a.data(), 1, 1);
+            ntts.ComputeInverse(rlwes[i].b.data(), rlwes[i].b.data(), 1, 1);
+            rlwes[i].setIsNtt(false);
+#endif
+        }
+    }
+
+    for (size_t i = rlwesNum/2; i > 0; i >>= 1)
+    {
+        for (size_t j = 0; j < i; j++)
+        {
+            convertTwoRLWEs(rlwes[j], rlwes[i + j], rlwesNum / i, rlwesNum, autokey);
+        }
+    }
+    /*
+    auto stop = std::chrono::high_resolution_clock::now();
+
+    auto glapsed = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
+    std::cout << "evalTrNn costs " << glapsed.count() << " us." << std::endl;
+    */
+    result = rlwes[0];
 }
 
 /*******************************************************************/

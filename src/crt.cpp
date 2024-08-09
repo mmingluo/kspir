@@ -2,6 +2,9 @@
 #include <assert.h>
 #include <stdlib.h>
 
+#include <chrono> // benchmark
+#include <iostream>
+
 // include __m512i
 #if defined(__AVX512F__)
 #include <immintrin.h>
@@ -409,6 +412,8 @@ void fastMultiplyQueryByDatabaseDim1(
     size_t pt_rows = 1;
     size_t pt_cols = 1;
 
+    // size_t count = 0;
+
     #if defined(__AVX512F__) && !defined(NO_CRT)
         assert(dim0 * ct_rows >= max_summed_pa_or_b_in_u64);
 
@@ -450,6 +455,7 @@ void fastMultiplyQueryByDatabaseDim1(
                             
                             sums_out_n0 = _mm512_add_epi64(sums_out_n0, _mm512_mul_epu32(a_lo, b_lo));
                             sums_out_n2 = _mm512_add_epi64(sums_out_n2, _mm512_mul_epu32(a_hi_hi, b_hi_hi));
+                            // count++;
                         }
                         
                         // reduce here, otherwise we will overflow
@@ -494,6 +500,7 @@ void fastMultiplyQueryByDatabaseDim1(
                 }
             }
         }
+        // std::cout << "origin count = " << count << std::endl;
     #elif defined(__AVX2__) && !defined(NO_CRT)
         assert(dim0 * ct_rows >= max_summed_pa_or_b_in_u64);
 
@@ -654,6 +661,7 @@ void fastMultiplyQueryByDatabaseDim1InvCRT(
         assert(dim0 * ct_rows >= max_summed_pa_or_b_in_u64);
 
         for (size_t z = 0; z < poly_len; z++) {
+            // auto start  = std::chrono::high_resolution_clock::now();
             size_t idx_a_base = z * (ct_cols * dim0 * ct_rows);
             size_t idx_b_base = z * (num_per * pt_cols * dim0 * pt_rows);
             // if (random_data) idx_b_base = (z % dummyWorkingSet) * (num_per * pt_cols * dim0 * pt_rows);
@@ -753,6 +761,10 @@ void fastMultiplyQueryByDatabaseDim1InvCRT(
                             sums_out_n2_u64_acc[1]+sums_out_n2_u64_acc[3]);
                 // }
             }
+            // auto stop  = std::chrono::high_resolution_clock::now();
+
+            // auto glapsed = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
+            // std::cout << " (in total) database multiplication total costs " << glapsed.count() << " us." << std::endl;
         }
         #elif defined(__AVX2__) && !defined(NO_CRT)
         assert(dim0 * ct_rows >= max_summed_pa_or_b_in_u64);

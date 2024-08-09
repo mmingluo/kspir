@@ -124,14 +124,14 @@ void test_generate_autokey()
     std::cout << "N1: " << N1 << ", N2: " << N2 << std::endl;
 
     AutoKeyBSGSRNS offlineKey1(N, crtMod, crtBaMod, 5, 0x01 << 18, 0x01 << 18);
-    AutoKeyBSGSRNS offlineKey2(N, crtMod, auxMod, 5, 0x01 << 10, 0x01 << 14);
+    AutoKeyBSGSRNS offlineKey2(N, crtMod, auxMod, 5, 0x01 << 14, 0x01 << 14);
     AutoKeyBSGSRNS autoKey1(N, crtMod, crtBaMod, 3, (0x01 << 20) * auxMod, 0x01 << 20);
     AutoKeyBSGSRNS autoKey2(N, crtMod, auxMod, 3, (0x01 << 11) * auxMod, 0x01 << 15);
     generate_offline_key(offlineKey1, offlineKey2, autoKey1, autoKey2, queryKey, N1);
 
     AutoKeyBSGSRNS result(N, crtMod, bsMod);
 
-int ntimes = 1;
+int ntimes = 10;
 
     auto start = std::chrono::high_resolution_clock::now();
 

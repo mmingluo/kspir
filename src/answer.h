@@ -76,6 +76,9 @@ void evalAuto(RlweCiphertext& result, const int32_t index, const AutoKey& autoke
 void packingLWEs(RlweCiphertext& result, std::vector<RlweCiphertext>& lwes,
                  const AutoKey& autokey);
 
+void packingRLWEs(RlweCiphertext& result, std::vector<RlweCiphertext>& rlwes,
+                 const AutoKey& autokey);
+
 void evalAutoRNS(RlweCiphertext& result1, RlweCiphertext& result2,
                  const int32_t index, const AutoKeyRNS& autokey);
 

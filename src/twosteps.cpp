@@ -179,6 +179,24 @@ void database_tobsgsntt(std::vector<std::vector<uint64_t> >& result,
 }
 
 
+void inverse_encode(std::vector<uint64_t>& message)
+{
+    uint64_t length = N;
+
+    intel::hexl::NTT nttp(length, bsgsp);
+    nttp.ComputeForward(message.data(), message.data(), 1, 1);
+
+    std::vector<int32_t> query_decode(length, 0);
+    compute_query_decode(query_decode, length);
+
+    std::vector<uint64_t> temp(length, 0);
+    copy(message.begin(), message.end(), temp.begin());
+    for (size_t j = 0; j < N; j++)
+    {
+        message[query_decode[j]] = temp[j];
+    }
+}
+
 void query_bsgs(RlweCiphertext& cipher, Secret& queryKey, uint64_t row)
 {
     // uint64_t length = queryKey.getLength();
@@ -364,6 +382,40 @@ void decrypt_bsgs(std::vector<uint64_t>& message, RlweCiphertext& cipher, Secret
     }
 }
 
+/**
+ * decrypt for total protocol
+ */
+void decrypt_bsgs_total(std::vector<uint64_t>& message, RlweCiphertext& cipher, Secret& secret,
+                        const int32_t rlwesNum)
+{
+    uint64_t modulus = secret.getModulus();
+
+    if (!cipher.getIsNtt())
+    {
+#ifdef INTEL_HEXL
+        intel::hexl::NTT ntts = secret.getNTT();
+        ntts.ComputeForward(cipher.a.data(), cipher.a.data(), 1, 1);
+        ntts.ComputeForward(cipher.b.data(), cipher.b.data(), 1, 1);
+        cipher.setIsNtt(true);
+#endif
+    }
+    
+    decrypt(message.data(), cipher.b.data(), cipher.a.data(), secret);
+
+    multConst(message, QInv(rlwesNum, modulus), modulus);
+
+    // me shoule be in (-p/2, p/2)
+    /**/
+    for (auto & me : message)
+    {
+        if (me > modulus / 2)
+        {
+            me = round(((long double)me - modulus) / bsgsDelta) + bsgsp;
+        } else {
+            me = round((long double)me / bsgsDelta);
+        }
+    }
+}
 
 inline void autoInNtt(std::vector<uint64_t>& result, const std::vector<uint64_t>& input,
                       const std::vector<int32_t>& permutation)
@@ -831,7 +883,7 @@ void evalAutoSRNS(std::vector<RlweCiphertext>& result, std::vector<RlweCiphertex
         }
     }
 
-    // rms modswitch
+    // rns modswitch
     for (size_t i = 0; i < N1 - 1; i++)
     {
         ntts.ComputeInverse(result[i].a.data(), result[i].a.data(), 1, 1);
@@ -865,7 +917,7 @@ void evalAutoSRNS(std::vector<RlweCiphertext>& result, std::vector<RlweCiphertex
         result[i].setIsNtt(true);
     }
 
-    // rms modswitch for input
+    // rns modswitch for input
     intel::hexl::EltwiseSubMod(input[0].a.data(), input[0].a.data(), input[1].a.data(),
                         length, modulus);
     intel::hexl::EltwiseFMAMod(input[0].a.data(), input[0].a.data(), bsModInv,
@@ -879,6 +931,286 @@ void evalAutoSRNS(std::vector<RlweCiphertext>& result, std::vector<RlweCiphertex
                         nullptr, length, modulus, 1);
     ntts.ComputeForward(input[0].b.data(), input[0].b.data(), 1, 1);
     input[0].setIsNtt(true);
+}
+
+// the variant of evalAutoSRNS. the key-switching keys would be much smaller 
+void evalAutoSRNSFirst(std::vector<RlweCiphertext>& result, std::vector<RlweCiphertext>& intermediate,
+              std::vector<RlweCiphertext>& input,
+              const int32_t N1, const AutoKeyBSGSRNS& autoKey,
+              std::vector<std::vector<int32_t> >& permutations)
+{
+    // use the first parameters
+    int32_t ellnum = autoKey.getEllnumBS();
+    uint64_t base = autoKey.getBaseBS();
+    uint64_t BBg = autoKey.getBgBS();
+
+    uint64_t length = input[0].getLength();
+    uint64_t modulus = input[0].getModulus();
+    uint64_t bsModulus = autoKey.getBSModulus();
+
+    std::vector<RlweCiphertext> result_aux(N1 - 1, RlweCiphertext(length, bsModulus));
+
+    // compute permutation matrix
+
+    std::vector<std::vector<uint64_t> > decomposed(ellnum, std::vector<uint64_t>(N, 0));
+    std::vector<std::vector<uint64_t> > decomposed_aux(ellnum, std::vector<uint64_t>(N, 0));
+    intel::hexl::NTT ntts = autoKey.getNTT();
+    intel::hexl::NTT bsNtts = autoKey.getBSNTT();
+    //  the input a should be store in coefficient form
+    if (input[0].getIsNtt())
+    {
+        ntts.ComputeInverse(input[0].a.data(), input[0].a.data(), 1, 1);
+        bsNtts.ComputeInverse(input[1].a.data(), input[1].a.data(), 1, 1);
+        decompose_bsgs(decomposed, decomposed_aux, input[0].a, input[1].a, ellnum, base, BBg);
+        ntts.ComputeInverse(input[0].b.data(), input[0].b.data(), 1, 1);
+        bsNtts.ComputeInverse(input[1].b.data(), input[1].b.data(), 1, 1);
+        input[0].setIsNtt(false);
+        input[1].setIsNtt(false);
+
+    } else {
+        // TODO: add more
+        decompose_bsgs(decomposed, decomposed_aux, input[0].a, input[1].a, ellnum, base, BBg);
+    }
+
+    for (size_t i = 0; i < ellnum; i++)
+    {
+        ntts.ComputeForward(decomposed[i].data(), decomposed[i].data(), 1, 1);
+        bsNtts.ComputeForward(decomposed_aux[i].data(), decomposed_aux[i].data(), 1, 1); /// do first
+    }
+
+    std::vector<uint64_t> autoed1(N);
+    std::vector<uint64_t> autoed2(N);
+    std::vector<uint64_t> temp1(N);
+    std::vector<uint64_t> temp2(N);
+    // RlweCiphertext tempCpher;
+    for (size_t i = 1; i < N1; i++)
+    {        
+        std::vector<RlweCiphertext> autoKey_index = autoKey.keyMap.at(pow_mod(5, i, 2 * N));
+
+        for (size_t j = 0; j < ellnum; j++)
+        {
+            // autoInNtt(autoed, decomposed[j], pow_mod(5, i, 2 * N));
+            // TODO: avx2, avx512f
+            for (size_t k = 0; k < length; k++)
+            {
+                autoed1[k] = decomposed[j][permutations[i][k]];
+                autoed2[k] = decomposed_aux[j][permutations[i][k]];
+            }
+
+            intel::hexl::EltwiseMultMod(temp1.data(), autoed1.data(),
+                                    autoKey_index[j].a.data(), length, modulus, 1);
+            intel::hexl::EltwiseMultMod(temp2.data(), autoed1.data(),
+                                    autoKey_index[j].b.data(), length, modulus, 1);
+            intel::hexl::EltwiseSubMod(result[i - 1].a.data(), result[i - 1].a.data(), temp1.data(), length, modulus);
+            intel::hexl::EltwiseSubMod(result[i - 1].b.data(), result[i - 1].b.data(), temp2.data(), length, modulus);
+
+            // handle bs modulus
+            intel::hexl::EltwiseMultMod(temp1.data(), autoed2.data(),
+                                    autoKey_index[j + ellnum].a.data(), length, bsModulus, 1);
+            intel::hexl::EltwiseMultMod(temp2.data(), autoed2.data(),
+                                    autoKey_index[j + ellnum].b.data(), length, bsModulus, 1);
+            intel::hexl::EltwiseSubMod(result_aux[i - 1].a.data(), result_aux[i - 1].a.data(), temp1.data(), length, bsModulus);
+            intel::hexl::EltwiseSubMod(result_aux[i - 1].b.data(), result_aux[i - 1].b.data(), temp2.data(), length, bsModulus);
+        }
+    }
+
+    // output intermediate result
+    /**
+    intermediate[0] = result[N1 - 2];
+    intermediate[1] = result_aux[N1 - 2];
+    ntts.ComputeInverse(intermediate[0].a.data(), intermediate[0].a.data(), 1, 1);
+    ntts.ComputeInverse(intermediate[0].b.data(), intermediate[0].b.data(), 1, 1);
+    bsNtts.ComputeInverse(intermediate[1].a.data(), intermediate[1].a.data(), 1, 1);
+    bsNtts.ComputeInverse(intermediate[1].b.data(), intermediate[1].b.data(), 1, 1);
+    // we add (0, b) before the rns modswitch
+    // (0, b) - g^-1(a) * evk
+    automorphic_rns(temp1, input[0].b, pow_mod(5, N1 - 1, 2 * N), modulus);
+    automorphic_rns(temp2, input[1].b, pow_mod(5, N1 - 1, 2 * N), bsModulus);
+    intel::hexl::EltwiseAddMod(intermediate[0].b.data(), intermediate[0].b.data(), temp1.data(), length, modulus);
+    intel::hexl::EltwiseAddMod(intermediate[1].b.data(), intermediate[1].b.data(), temp2.data(), length, bsModulus);
+    **/
+
+    // rns modswitch
+    for (size_t i = 0; i < N1 - 1; i++)
+    {
+        ntts.ComputeInverse(result[i].a.data(), result[i].a.data(), 1, 1);
+        ntts.ComputeInverse(result[i].b.data(), result[i].b.data(), 1, 1);
+
+        bsNtts.ComputeInverse(result_aux[i].a.data(), result_aux[i].a.data(), 1, 1);
+        bsNtts.ComputeInverse(result_aux[i].b.data(), result_aux[i].b.data(), 1, 1);
+
+        // we add (0, b) before the rns modswitch
+        // (0, b) - g^-1(a) * evk
+        automorphic_rns(temp1, input[0].b, pow_mod(5, i + 1, 2 * N), modulus);
+        automorphic_rns(temp2, input[1].b, pow_mod(5, i + 1, 2 * N), bsModulus);
+        intel::hexl::EltwiseAddMod(result[i].b.data(), result[i].b.data(), temp1.data(), length, modulus);
+        intel::hexl::EltwiseAddMod(result_aux[i].b.data(), result_aux[i].b.data(), temp2.data(), length, bsModulus);
+
+        if (i == N1 - 2)
+        {
+            intermediate[0] = result[N1 - 2];
+            intermediate[1] = result_aux[N1 - 2];
+        }
+
+        // rns modswitch:
+        //  q_2^-1 * ((b1, a1) - (b2, a2)) (mod q_1)
+        intel::hexl::EltwiseSubMod(result[i].a.data(), result[i].a.data(), result_aux[i].a.data(),
+                            length, modulus);
+        intel::hexl::EltwiseFMAMod(result[i].a.data(), result[i].a.data(), bsModInv,
+                            nullptr, length, modulus, 1);
+        ntts.ComputeForward(result[i].a.data(), result[i].a.data(), 1, 1);
+
+        // handle b
+        intel::hexl::EltwiseSubMod(result[i].b.data(), result[i].b.data(), result_aux[i].b.data(),
+                            length, modulus);
+        intel::hexl::EltwiseFMAMod(result[i].b.data(), result[i].b.data(), bsModInv,
+                            nullptr, length, modulus, 1);
+        ntts.ComputeForward(result[i].b.data(), result[i].b.data(), 1, 1);
+
+        result[i].setIsNtt(true);
+    }
+
+    // rns modswitch for input
+    intel::hexl::EltwiseSubMod(input[0].a.data(), input[0].a.data(), input[1].a.data(),
+                        length, modulus);
+    intel::hexl::EltwiseFMAMod(input[0].a.data(), input[0].a.data(), bsModInv,
+                        nullptr, length, modulus, 1);
+    ntts.ComputeForward(input[0].a.data(), input[0].a.data(), 1, 1);
+
+    // handle b
+    intel::hexl::EltwiseSubMod(input[0].b.data(), input[0].b.data(), input[1].b.data(),
+                        length, modulus);
+    intel::hexl::EltwiseFMAMod(input[0].b.data(), input[0].b.data(), bsModInv,
+                        nullptr, length, modulus, 1);
+    ntts.ComputeForward(input[0].b.data(), input[0].b.data(), 1, 1);
+    input[0].setIsNtt(true);
+}
+
+// the variant of evalAutoSRNS. the key-switching keys would be much smaller 
+void evalAutoSRNSSecond(std::vector<RlweCiphertext>& result, std::vector<RlweCiphertext>& input,
+              const int32_t N1, const AutoKeyBSGSRNS& autoKey,
+              std::vector<std::vector<int32_t> >& permutations)
+{
+    // use the first parameters
+    int32_t ellnum = autoKey.getEllnumBS();
+    uint64_t base = autoKey.getBaseBS();
+    uint64_t BBg = autoKey.getBgBS();
+
+    uint64_t length = input[0].getLength();
+    uint64_t modulus = input[0].getModulus();
+    uint64_t bsModulus = autoKey.getBSModulus();
+
+    std::vector<RlweCiphertext> result_aux(N1, RlweCiphertext(length, bsModulus));
+
+    // compute permutation matrix
+
+    std::vector<std::vector<uint64_t> > decomposed(ellnum, std::vector<uint64_t>(N, 0));
+    std::vector<std::vector<uint64_t> > decomposed_aux(ellnum, std::vector<uint64_t>(N, 0));
+    intel::hexl::NTT ntts = autoKey.getNTT();
+    intel::hexl::NTT bsNtts = autoKey.getBSNTT();
+    //  the input a should be store in coefficient form
+    if (input[0].getIsNtt())
+    {
+        ntts.ComputeInverse(input[0].a.data(), input[0].a.data(), 1, 1);
+        bsNtts.ComputeInverse(input[1].a.data(), input[1].a.data(), 1, 1);
+        decompose_bsgs(decomposed, decomposed_aux, input[0].a, input[1].a, ellnum, base, BBg);
+        ntts.ComputeInverse(input[0].b.data(), input[0].b.data(), 1, 1);
+        bsNtts.ComputeInverse(input[1].b.data(), input[1].b.data(), 1, 1);
+        input[0].setIsNtt(false);
+        input[1].setIsNtt(false);
+
+    } else {
+        // TODO: add more
+        decompose_bsgs(decomposed, decomposed_aux, input[0].a, input[1].a, ellnum, base, BBg);
+    }
+
+    for (size_t i = 0; i < ellnum; i++)
+    {
+        ntts.ComputeForward(decomposed[i].data(), decomposed[i].data(), 1, 1);
+        bsNtts.ComputeForward(decomposed_aux[i].data(), decomposed_aux[i].data(), 1, 1); /// do first
+    }
+
+    std::vector<uint64_t> autoed1(N);
+    std::vector<uint64_t> autoed2(N);
+    std::vector<uint64_t> temp1(N);
+    std::vector<uint64_t> temp2(N);
+    // RlweCiphertext tempCpher;
+    for (size_t i = 0; i < N1; i++)
+    {        
+        std::vector<RlweCiphertext> autoKey_index = autoKey.keyMap.at(pow_mod(5, i + 1, 2 * N));
+
+        for (size_t j = 0; j < ellnum; j++)
+        {
+            // autoInNtt(autoed, decomposed[j], pow_mod(5, i, 2 * N));
+            // TODO: avx2, avx512f
+            for (size_t k = 0; k < length; k++)
+            {
+                autoed1[k] = decomposed[j][permutations[i + 1][k]];
+                autoed2[k] = decomposed_aux[j][permutations[i + 1][k]];
+            }
+
+            intel::hexl::EltwiseMultMod(temp1.data(), autoed1.data(),
+                                    autoKey_index[j].a.data(), length, modulus, 1);
+            intel::hexl::EltwiseMultMod(temp2.data(), autoed1.data(),
+                                    autoKey_index[j].b.data(), length, modulus, 1);
+            intel::hexl::EltwiseSubMod(result[N1 + i - 1].a.data(), result[N1 + i - 1].a.data(), temp1.data(), length, modulus);
+            intel::hexl::EltwiseSubMod(result[N1 + i - 1].b.data(), result[N1 + i - 1].b.data(), temp2.data(), length, modulus);
+
+            // handle bs modulus
+            intel::hexl::EltwiseMultMod(temp1.data(), autoed2.data(),
+                                    autoKey_index[j + ellnum].a.data(), length, bsModulus, 1);
+            intel::hexl::EltwiseMultMod(temp2.data(), autoed2.data(),
+                                    autoKey_index[j + ellnum].b.data(), length, bsModulus, 1);
+            intel::hexl::EltwiseSubMod(result_aux[i].a.data(), result_aux[i].a.data(), temp1.data(), length, bsModulus);
+            intel::hexl::EltwiseSubMod(result_aux[i].b.data(), result_aux[i].b.data(), temp2.data(), length, bsModulus);
+        }
+    }
+
+    // rns modswitch
+    for (size_t i = 0; i < N1; i++)
+    {
+        size_t rindex = N1 + i - 1;
+        
+        ntts.ComputeInverse(result[rindex].a.data(), result[rindex].a.data(), 1, 1);
+        ntts.ComputeInverse(result[rindex].b.data(), result[rindex].b.data(), 1, 1);
+
+        bsNtts.ComputeInverse(result_aux[i].a.data(), result_aux[i].a.data(), 1, 1);
+        bsNtts.ComputeInverse(result_aux[i].b.data(), result_aux[i].b.data(), 1, 1);
+
+        // we add (0, b) before the rns modswitch
+        // (0, b) - g^-1(a) * evk
+        automorphic_rns(temp1, input[0].b, pow_mod(5, i + 1, 2 * N), modulus);
+        automorphic_rns(temp2, input[1].b, pow_mod(5, i + 1, 2 * N), bsModulus);
+        intel::hexl::EltwiseAddMod(result[rindex].b.data(), result[rindex].b.data(), temp1.data(), length, modulus);
+        intel::hexl::EltwiseAddMod(result_aux[i].b.data(), result_aux[i].b.data(), temp2.data(), length, bsModulus);
+
+        // rns modswitch:
+        //  q_2^-1 * ((b1, a1) - (b2, a2)) (mod q_1)
+        intel::hexl::EltwiseSubMod(result[rindex].a.data(), result[rindex].a.data(), result_aux[i].a.data(),
+                            length, modulus);
+        intel::hexl::EltwiseFMAMod(result[rindex].a.data(), result[rindex].a.data(), bsModInv,
+                            nullptr, length, modulus, 1);
+        ntts.ComputeForward(result[rindex].a.data(), result[rindex].a.data(), 1, 1);
+
+        // handle b
+        intel::hexl::EltwiseSubMod(result[rindex].b.data(), result[rindex].b.data(), result_aux[i].b.data(),
+                            length, modulus);
+        intel::hexl::EltwiseFMAMod(result[rindex].b.data(), result[rindex].b.data(), bsModInv,
+                            nullptr, length, modulus, 1);
+        ntts.ComputeForward(result[rindex].b.data(), result[rindex].b.data(), 1, 1);
+
+        result[rindex].setIsNtt(true);
+    }
+}
+
+void evalAutoSRNSSmallKeys(std::vector<RlweCiphertext>& result, std::vector<RlweCiphertext>& input,
+              const int32_t N1, const AutoKeyBSGSRNS& autoKey,
+              std::vector<std::vector<int32_t> >& permutations)
+{
+    std::vector<RlweCiphertext> intermediate(1, RlweCiphertext(N, crtMod));
+    intermediate.push_back(RlweCiphertext(N, bsMod));
+    evalAutoSRNSFirst(result, intermediate, input, N1 / 2, autoKey, permutations);
+    evalAutoSRNSSecond(result, intermediate, N1 / 2, autoKey, permutations);
 }
 
 /**
@@ -1152,7 +1484,8 @@ void matrix_vector_mul_bsgs_rns_crt(RlweCiphertext& result, std::vector<RlweCiph
 #ifdef TIME_COLLECT
     auto start = std::chrono::high_resolution_clock::now();
 #endif
-    evalAutoSRNS(rotated_cipher, input, N1, autoKey, permutations);
+    // evalAutoSRNS(rotated_cipher, input, N1, autoKey, permutations);
+    evalAutoSRNSSmallKeys(rotated_cipher, input, N1, autoKey, permutations);
 #ifdef TIME_COLLECT
     auto stop  = std::chrono::high_resolution_clock::now();
 
@@ -1163,7 +1496,7 @@ void matrix_vector_mul_bsgs_rns_crt(RlweCiphertext& result, std::vector<RlweCiph
     uint64_t* cipherbuf = (uint64_t *)aligned_alloc(64, sizeof(uint64_t) * N1 * N * 2);
     reorientCipher(cipherbuf, input[0], rotated_cipher, N1);
 
-int32_t ntimes = 1;
+int32_t ntimes = 64 * 8;
     // std::vector<std::vector<uint64_t> > output(N2, std::vector<uint64_t>(4 * N, 0));
     std::vector<std::vector<uint64_t> > output(N2, std::vector<uint64_t>(2 * N, 0));
 #ifdef TIME_COLLECT
@@ -1191,7 +1524,7 @@ for (size_t i = 0; i < ntimes; ++i)
 }
 
 
-void matrix_vector_mul_bsgs_rns_crt_large(RlweCiphertext& result, std::vector<RlweCiphertext>& input,
+void matrix_vector_mul_bsgs_rns_crt_large(std::vector<RlweCiphertext>& result, std::vector<RlweCiphertext>& input,
                         uint64_t* data, const AutoKeyBSGSRNS& autoKey, const int32_t N1,
                         std::vector<std::vector<int32_t> >& permutations, int32_t r)
 {
@@ -1204,12 +1537,13 @@ void matrix_vector_mul_bsgs_rns_crt_large(RlweCiphertext& result, std::vector<Rl
 #ifdef TIME_COLLECT
     auto start = std::chrono::high_resolution_clock::now();
 #endif
-    evalAutoSRNS(rotated_cipher, input, N1, autoKey, permutations);
+    // evalAutoSRNS(rotated_cipher, input, N1, autoKey, permutations);
+    evalAutoSRNSSmallKeys(rotated_cipher, input, N1, autoKey, permutations);
 #ifdef TIME_COLLECT
     auto stop  = std::chrono::high_resolution_clock::now();
 
     auto glapsed = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-    std::cout << " evalAutoS costs " << glapsed.count() << " us." << std::endl;
+    std::cout << "   evalAutoS costs " << glapsed.count() << " us." << std::endl;
 #endif
 
     uint64_t* cipherbuf = (uint64_t *)aligned_alloc(64, sizeof(uint64_t) * N1 * N * 2);
@@ -1228,19 +1562,19 @@ for (size_t i = 0; i < r; ++i)
     // fastMultiplyQueryByDatabaseDim1(output, data, cipherbuf, N1, N2);
     fastMultiplyQueryByDatabaseDim1InvCRT(output, data + i * num_words, cipherbuf, N1, N2);
 
-    memcpy(result.a.data(), output[0].data(), N * sizeof(uint64_t));
-    memcpy(result.b.data(), output[0].data() + N, N * sizeof(uint64_t));
-    result.setIsNtt(true);
+    memcpy(result[i].a.data(), output[0].data(), N * sizeof(uint64_t));
+    memcpy(result[i].b.data(), output[0].data() + N, N * sizeof(uint64_t));
+    result[i].setIsNtt(true);
     // output is stored in ntt form
 
-    evalAutoRNSCRT(result, output, N2, autoKey,
+    evalAutoRNSCRT(result[i], output, N2, autoKey,
                 autoKey.getEllnumGS(), autoKey.getBaseGS(), autoKey.getBgGS());
 }
 #ifdef TIME_COLLECT
     stop  = std::chrono::high_resolution_clock::now();
 
     glapsed = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-    std::cout << " core costs " << glapsed.count() << " us." << std::endl;
+    std::cout << "   core costs " << glapsed.count() << " us." << std::endl;
 #endif
 }
 
@@ -1317,10 +1651,13 @@ void evalAutoRNSKey(RlweCiphertext& result1, RlweCiphertext& result2,
     // keyswitch
     std::vector<std::vector<uint64_t> > dec_a(ellnum, std::vector<uint64_t>(length, 0));
     std::vector<std::vector<uint64_t> > dec_a2(ellnum, std::vector<uint64_t>(length, 0));
-    assert(modulus2 == bsMod || modulus2 == crtBaMod);
-    if (modulus2 == bsMod)
+    // assert(modulus2 == bsMod || modulus2 == crtBaMod);
+    assert(modulus2 == auxMod || modulus2 == crtBaMod);
+    // if (modulus2 == bsMod)
+    if (modulus2 == auxMod)
     {
-        decompose_bsgs(dec_a, dec_a2, temp_a1, temp_a2, ellnum, PP, BBg);
+        // decompose_bsgs(dec_a, dec_a2, temp_a1, temp_a2, ellnum, PP, BBg);
+        decompose_bsgs_aux(dec_a, dec_a2, temp_a1, temp_a2, ellnum, PP, BBg);
     } else {
         decompose_bsgs_ba(dec_a, dec_a2, temp_a1, temp_a2, ellnum, PP, BBg);
     }
@@ -1413,7 +1750,7 @@ void genAutoKeyFromOffline(AutoKeyBSGSRNS& result, AutoKeyBSGSRNS& result1, Auto
                         5, offlineKey1,
                         offlineKey1.getEllnumBS(), offlineKey1.getBaseBS(), offlineKey1.getBgBS());
         }
-        // TODO: modswithing
+        // store in result1
         int32_t next_index = pow_mod(5, i + 1, 2 * N);
         result1.keyMap.insert(std::pair<int32_t, std::vector<RlweCiphertext> >(next_index, key_for_index));
     }
@@ -1425,7 +1762,6 @@ void genAutoKeyFromOffline(AutoKeyBSGSRNS& result, AutoKeyBSGSRNS& result1, Auto
         temp1.push_back(RlweCiphertext(N, result2.getBSModulus()));
     }
     // modulus switching
-    //  q_2^-1 * ((b1, a1) - (b2, a2)) (mod q_1)
     //  q_3^-1 * (a1 - a3) (mod q_1), q_3^-1 * (a2 - a3) (mod q_2) 
     intel::hexl::NTT ntts1 = result1.getNTT();
     intel::hexl::NTT ntts2 = result2.getBSNTT();
@@ -1454,8 +1790,8 @@ void genAutoKeyFromOffline(AutoKeyBSGSRNS& result, AutoKeyBSGSRNS& result1, Auto
             ntts2.ComputeForward(temp1[j + ellnum].a.data(), temp1[j + ellnum].a.data(), 1, 1);
 
             // handle b
-            intel::hexl::EltwiseReduceMod(mod2.data(), input[j + ellnum].b.data(), length, crtMod, 1, 1);
-            intel::hexl::EltwiseReduceMod(mod3.data(), input[j + ellnum].b.data(), length, crtMod, 1, 1);
+            intel::hexl::EltwiseReduceMod(mod2.data(), input[j + ellnum].b.data(), length, bsMod, 1, 1);
+            intel::hexl::EltwiseReduceMod(mod3.data(), input[j + ellnum].b.data(), length, auxMod, 1, 1);
             // q_3^-1 * (b1 - b3) (mod q_1)
             intel::hexl::EltwiseSubMod(temp1[j].b.data(), input[j].b.data(), mod3.data(),
                                 length, crtMod);
@@ -1464,9 +1800,9 @@ void genAutoKeyFromOffline(AutoKeyBSGSRNS& result, AutoKeyBSGSRNS& result1, Auto
             ntts1.ComputeForward(temp1[j].b.data(), temp1[j].b.data(), 1, 1);
             // q_3^-1 * (b2 - b3) (mod q_2)
             intel::hexl::EltwiseSubMod(temp1[j + ellnum].b.data(), mod2.data(), mod3.data(),
-                                length, crtMod);
-            intel::hexl::EltwiseFMAMod(temp1[j + ellnum].b.data(), temp1[j + ellnum].b.data(), auxModInv,
-                                nullptr, length, crtMod, 1);
+                                length, bsMod);
+            intel::hexl::EltwiseFMAMod(temp1[j + ellnum].b.data(), temp1[j + ellnum].b.data(), auxModInvBs,
+                                nullptr, length, bsMod, 1);
             ntts2.ComputeForward(temp1[j + ellnum].b.data(), temp1[j + ellnum].b.data(), 1, 1);
 
             temp1[j].setIsNtt(true);
@@ -1495,7 +1831,7 @@ void genAutoKeyFromOffline(AutoKeyBSGSRNS& result, AutoKeyBSGSRNS& result1, Auto
                         pow_mod(5, N1, 2 * N), offlineKey2,
                         offlineKey2.getEllnumBS(), offlineKey2.getBaseBS(), offlineKey2.getBgBS());
         }
-        // TODO: modswithing
+        // store in result2
         int32_t next_index = pow_mod(5, (i + 1) * N1, 2 * N);
         result2.keyMap.insert(std::pair<int32_t, std::vector<RlweCiphertext> >(next_index, key_for_index2));
     }
