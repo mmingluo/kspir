@@ -5,7 +5,7 @@ Private Information Retrieval (PIR)
 ***
 
  
-The [kspir](https://github.com/parsear/kspir) is the implement of the paper [Faster FHE-based Single-Server Private Information Retrieval](docs/[full%20version]%20ccs%2024-Faster%20FHE-Based%20Single-Server%20Private%20Information%20Retrieval.pdf). This library will be continuously updated to support more features.
+The [kspir](https://github.com/mmingluo/kspir) is the implement of the paper [Faster FHE-based Single-Server Private Information Retrieval](docs/[full%20version]%20ccs%2024-Faster%20FHE-Based%20Single-Server%20Private%20Information%20Retrieval.pdf). This library will be continuously updated to support more features.
 
 ## Requirements
 The runnig of this code requires a basic c++ toolchain, including
